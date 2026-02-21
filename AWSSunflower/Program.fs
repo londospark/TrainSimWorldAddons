@@ -86,7 +86,7 @@ module Main =
                         Button.dock Dock.Bottom
                         Button.onClick (fun _ -> send "s")
                         Button.content "Set sunflower"
-                        Button.isEnabled currentSerialPort.Current.IsSome
+                        Button.isEnabled isConnected.Current
                         Button.horizontalAlignment HorizontalAlignment.Stretch
                         Button.horizontalContentAlignment HorizontalAlignment.Center
                     ]
@@ -94,7 +94,7 @@ module Main =
                         Button.dock Dock.Bottom
                         Button.onClick (fun _ -> send "c")
                         Button.content "Clear sunflower"
-                        Button.isEnabled currentSerialPort.Current.IsSome
+                        Button.isEnabled isConnected.Current
                         Button.horizontalAlignment HorizontalAlignment.Stretch
                         Button.horizontalContentAlignment HorizontalAlignment.Center
                     ]
@@ -107,6 +107,9 @@ module Main =
                         ComboBox.onSelectedItemChanged (fun item -> currentSerialPort.Set(Some <| string item))
                     ]
                     Button.create [
+                        Button.dock Dock.Top
+                        Button.horizontalAlignment HorizontalAlignment.Stretch
+                        Button.horizontalContentAlignment HorizontalAlignment.Center
                         Button.content (if isConnected.Current then "Disconnect" else "Connect")
                         Button.isEnabled currentSerialPort.Current.IsSome
                         Button.onClick (fun _ -> toggleConnection ())
