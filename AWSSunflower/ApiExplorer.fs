@@ -65,6 +65,7 @@ module ApiExplorer =
                             async { 
                                 match CommKey.create commKey.Current with
                                 | Ok key -> return Ok key
+                                | Error (AuthError msg) -> return Error msg
                                 | Error err -> return Error "Invalid CommKey format"
                             }
                     
@@ -214,12 +215,12 @@ module ApiExplorer =
                         
                         match getResult with
                         | Ok getResp ->
-                            // Update the values map
-                            let newValues =
+                            // Update the values map - store using the endpoint path as key
+                            let valueStr =
                                 getResp.Values
-                                |> Seq.fold (fun acc kvp -> 
-                                    Map.add kvp.Key (kvp.Value.ToString()) acc
-                                ) endpointValues.Current
+                                |> Seq.map (fun kvp -> $"{kvp.Key}: {kvp.Value}")
+                                |> String.concat ", "
+                            let newValues = Map.add endpointPath valueStr endpointValues.Current
                             endpointValues.Set newValues
                         | Error err ->
                             let msg =
@@ -464,7 +465,8 @@ module ApiExplorer =
                                                         ]
                                                         
                                                         // Show value if fetched
-                                                        match Map.tryFind ep.Name endpointValues.Current with
+                                                        let fullPathForLookup = $"{node.Path}/{ep.Name}"
+                                                        match Map.tryFind fullPathForLookup endpointValues.Current with
                                                         | Some value ->
                                                             TextBox.create [
                                                                 TextBox.text value
