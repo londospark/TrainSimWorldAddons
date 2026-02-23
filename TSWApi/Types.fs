@@ -16,6 +16,7 @@ module Types =
     /// | HttpError(status, msg) -> printfn "HTTP %d: %s" status msg
     /// | AuthError msg -> printfn "Auth: %s" msg
     /// | ParseError msg -> printfn "Parse: %s" msg
+    /// | ConfigError msg -> printfn "Config: %s" msg
     /// </code>
     /// </example>
     type ApiError =
@@ -27,16 +28,59 @@ module Types =
         | AuthError of string
         /// A JSON deserialization error.
         | ParseError of string
+        /// A configuration error (invalid URL, empty values, etc.)
+        | ConfigError of string
 
     /// Result type alias for API operations. Wraps Result&lt;'T, ApiError&gt;.
     type ApiResult<'T> = Result<'T, ApiError>
 
+    /// A validated base URL for the TSW API.
+    type BaseUrl = private BaseUrl of string
+
+    /// Companion module for BaseUrl.
+    [<RequireQualifiedAccess>]
+    module BaseUrl =
+        /// Pre-validated default URL. No Result wrapper needed.
+        let defaultUrl : BaseUrl = BaseUrl "http://localhost:31270"
+
+        /// Validate and create a BaseUrl.
+        /// Must be non-empty and start with http:// or https://.
+        /// Trailing slashes are normalized away.
+        let create (url: string) : Result<BaseUrl, ApiError> =
+            if System.String.IsNullOrWhiteSpace(url) then
+                Error(ConfigError "Base URL cannot be empty")
+            elif not (url.StartsWith("http://") || url.StartsWith("https://")) then
+                Error(ConfigError $"Base URL must start with http:// or https://: '{url}'")
+            else
+                Ok(BaseUrl(url.TrimEnd('/')))
+
+        /// Extract the validated string value.
+        let value (BaseUrl url) : string = url
+
+    /// A validated DTGCommKey authentication token.
+    type CommKey = private CommKey of string
+
+    /// Companion module for CommKey.
+    [<RequireQualifiedAccess>]
+    module CommKey =
+        /// Validate and create a CommKey.
+        /// Must be non-empty after trimming whitespace.
+        let create (key: string) : Result<CommKey, ApiError> =
+            if System.String.IsNullOrWhiteSpace(key) then
+                Error(AuthError "CommKey cannot be empty")
+            else
+                Ok(CommKey(key.Trim()))
+
+        /// Extract the validated string value.
+        let value (CommKey key) : string = key
+
     /// Configuration for connecting to the TSW API.
+    /// All fields are validated — illegal states are unrepresentable.
     type ApiConfig =
         { /// The base URL of the TSW API (default: http://localhost:31270).
-          BaseUrl: string
+          BaseUrl: BaseUrl
           /// The DTGCommKey authentication token read from CommAPIKey.txt.
-          CommKey: string }
+          CommKey: CommKey }
 
     /// An HTTP route advertised by the /info endpoint.
     type HttpRoute =

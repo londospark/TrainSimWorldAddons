@@ -19,8 +19,8 @@ module Http =
     /// then reads the CommAPIKey.txt file.
     /// </summary>
     /// <param name="myGamesPath">Path to the user's "My Games" directory.</param>
-    /// <returns>Ok with the key string, or Error with AuthError details.</returns>
-    let discoverCommKey (myGamesPath: string) : Result<string, ApiError> =
+    /// <returns>Ok with the validated CommKey, or Error with AuthError details.</returns>
+    let discoverCommKey (myGamesPath: string) : Result<CommKey, ApiError> =
         try
             let dirs =
                 if Directory.Exists(myGamesPath) then
@@ -46,7 +46,7 @@ module Http =
 
                 if File.Exists(keyPath) then
                     let key = File.ReadAllText(keyPath).Trim()
-                    Ok key
+                    CommKey.create key
                 else
                     Error(AuthError $"CommAPIKey.txt not found at {keyPath}")
         with ex ->
@@ -54,16 +54,18 @@ module Http =
 
     /// <summary>Create an API config with the default base URL (http://localhost:31270).</summary>
     /// <param name="commKey">The DTGCommKey authentication token.</param>
-    let createConfig (commKey: string) : ApiConfig =
-        { BaseUrl = "http://localhost:31270"
-          CommKey = commKey }
+    let createConfig (commKey: string) : Result<ApiConfig, ApiError> =
+        CommKey.create commKey
+        |> Result.map (fun key -> { BaseUrl = BaseUrl.defaultUrl; CommKey = key })
 
     /// <summary>Create an API config with a custom base URL for network access.</summary>
     /// <param name="baseUrl">The base URL (e.g., "http://192.168.1.50:31270").</param>
     /// <param name="commKey">The DTGCommKey authentication token.</param>
-    let createConfigWithUrl (baseUrl: string) (commKey: string) : ApiConfig =
-        { BaseUrl = baseUrl
-          CommKey = commKey }
+    let createConfigWithUrl (baseUrl: string) (commKey: string) : Result<ApiConfig, ApiError> =
+        match BaseUrl.create baseUrl, CommKey.create commKey with
+        | Ok url, Ok key -> Ok { BaseUrl = url; CommKey = key }
+        | Error e, _     -> Error e
+        | _, Error e     -> Error e
 
     /// <summary>
     /// Send an authenticated GET request to the TSW API and deserialize the JSON response.
@@ -76,9 +78,9 @@ module Http =
     let sendRequest<'T> (client: HttpClient) (config: ApiConfig) (path: string) : Async<ApiResult<'T>> =
         async {
             try
-                let url = $"{config.BaseUrl}{path}"
+                let url = $"{BaseUrl.value config.BaseUrl}{path}"
                 use request = new HttpRequestMessage(HttpMethod.Get, url)
-                request.Headers.Add("DTGCommKey", config.CommKey)
+                request.Headers.Add("DTGCommKey", CommKey.value config.CommKey)
 
                 let! response =
                     client.SendAsync(request) |> Async.AwaitTask
