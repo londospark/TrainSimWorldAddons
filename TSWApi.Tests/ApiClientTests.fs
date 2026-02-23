@@ -19,7 +19,10 @@ let mockClient (statusCode: HttpStatusCode) (content: string) =
     response.Content <- new StringContent(content)
     new HttpClient(new MockHandler(response))
 
-let testConfig = { BaseUrl = "http://localhost:31270"; CommKey = "test-key" }
+let testConfig =
+    match CommKey.create "test-key" with
+    | Ok key -> { BaseUrl = BaseUrl.defaultUrl; CommKey = key }
+    | Error e -> failwith $"Test config creation failed: {e}"
 
 // ── getInfo ──
 
