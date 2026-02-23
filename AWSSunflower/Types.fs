@@ -27,3 +27,21 @@ type Toast =
         CreatedAt: DateTime
     }
 
+/// API connection state
+[<RequireQualifiedAccess>]
+type ApiConnectionState =
+    | Disconnected
+    | Connecting
+    | Connected of info: TSWApi.Types.InfoResponse
+    | Error of message: string
+
+/// Tree node UI state (for TreeView)
+type TreeNodeState =
+    {
+        Path: string
+        Name: string
+        IsExpanded: bool
+        Children: TreeNodeState list option
+        Endpoints: TSWApi.Types.Endpoint list option
+    }
+

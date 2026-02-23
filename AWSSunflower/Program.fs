@@ -135,17 +135,36 @@ module Main =
                     } |> Async.StartImmediate
                 | None -> ()
             
-            // Render main layout with all components
-            mainLayout
-                serialPorts.Current
-                connectionState.Current
-                isConnecting.Current
-                toasts.Current
-                (fun port -> selectedPort.Set port)
-                toggleConnection
-                (fun () -> sendCommand "s")
-                (fun () -> sendCommand "c")
-                dismissToast
+            // TabControl with Serial Port and API Explorer tabs
+            TabControl.create [
+                TabControl.tabStripPlacement Dock.Top
+                TabControl.viewItems [
+                    // Serial Port Tab
+                    TabItem.create [
+                        TabItem.header "Serial Port"
+                        TabItem.content (
+                            mainLayout
+                                serialPorts.Current
+                                connectionState.Current
+                                isConnecting.Current
+                                toasts.Current
+                                (fun port -> selectedPort.Set port)
+                                toggleConnection
+                                (fun () -> sendCommand "s")
+                                (fun () -> sendCommand "c")
+                                dismissToast
+                        )
+                    ]
+                    
+                    // API Explorer Tab
+                    TabItem.create [
+                        TabItem.header "API Explorer"
+                        TabItem.content (
+                            ApiExplorer.view addToast
+                        )
+                    ]
+                ]
+            ]
         )
 
 type MainWindow() =
