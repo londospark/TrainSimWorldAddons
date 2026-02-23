@@ -6,6 +6,9 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="Types.fs" />
+        <Compile Include="SerialPort.fs" />
+        <Compile Include="Components.fs" />
         <Compile Include="Program.fs"/>
     </ItemGroup>
 
@@ -14,6 +17,10 @@
       <PackageReference Include="Avalonia.FuncUI" Version="1.5.2" />
       <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.12" />
       <PackageReference Include="System.IO.Ports" Version="10.0.3" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\TSWApi\TSWApi.fsproj" />
     </ItemGroup>
 
 </Project>

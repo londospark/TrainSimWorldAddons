@@ -1,0 +1,13 @@
+[
+  {
+    "assignment_id": "talyllyn-railway-001",
+    "universe": "talyllyn-railway",
+    "timestamp": "2026-02-23T22:08:00Z",
+    "agents": [
+      { "name": "Talyllyn", "role": "Lead" },
+      { "name": "Dolgoch", "role": "Core Dev" },
+      { "name": "Sir Haydn", "role": "Library Dev" },
+      { "name": "Edward Thomas", "role": "Tester" }
+    ]
+  }
+]

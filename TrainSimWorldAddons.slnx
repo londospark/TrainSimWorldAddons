@@ -1,3 +1,5 @@
 <Solution>
   <Project Path="AWSSunflower/AWSSunflower.fsproj" />
+  <Project Path="TSWApi.Tests/TSWApi.Tests.fsproj" />
+  <Project Path="TSWApi/TSWApi.fsproj" />
 </Solution>
