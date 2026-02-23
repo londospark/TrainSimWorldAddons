@@ -16,5 +16,6 @@
 | Dolgoch | Core Dev | HTTP client, types, serialization (F#) | 🔧 |
 | Sir Haydn | Library Dev | Tree navigation, API surface, type provider design | 🔧 |
 | Edward Thomas | Tester | Unit tests, integration tests, edge cases | 🧪 |
+| Tom Rolt | UI Dev | Avalonia FuncUI, tabs, API explorer UI | 🎨 |
 | Scribe | Session Logger | Memory, decisions, session logs | 📋 |
 | Ralph | Work Monitor | Work queue, backlog, keep-alive | 🔄 |
