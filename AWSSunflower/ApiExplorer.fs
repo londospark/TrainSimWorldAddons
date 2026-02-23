@@ -23,6 +23,7 @@ module ApiExplorer =
             // State management
             let baseUrl = ctx.useState "http://localhost:31270"
             let commKey = ctx.useState ""
+            let apiConfig = ctx.useState<ApiConfig option> None
             let connectionState = ctx.useState ApiConnectionState.Disconnected
             let isConnecting = ctx.useState false
             let treeRoot = ctx.useState<TreeNodeState list> []
@@ -47,7 +48,7 @@ module ApiExplorer =
                                 let result = TSWApi.Http.discoverCommKey myGamesPath
                                 match result with
                                 | Ok key -> 
-                                    commKey.Set key
+                                    commKey.Set (CommKey.value key)
                                     return Ok key
                                 | Error (AuthError msg) ->
                                     return Error msg
@@ -57,9 +58,15 @@ module ApiExplorer =
                                     return Error $"HTTP {status}: {body}"
                                 | Error (ParseError msg) ->
                                     return Error $"Parse error: {msg}"
+                                | Error (ConfigError msg) ->
+                                    return Error $"Config error: {msg}"
                             }
                         else
-                            async { return Ok commKey.Current }
+                            async { 
+                                match CommKey.create commKey.Current with
+                                | Ok key -> return Ok key
+                                | Error err -> return Error "Invalid CommKey format"
+                            }
                     
                     match keyResult with
                     | Error msg ->
@@ -68,48 +75,56 @@ module ApiExplorer =
                         addToast msg true
                     | Ok key ->
                         // Create config and try getInfo
-                        let config = TSWApi.Http.createConfigWithUrl baseUrl.Current key
-                        let! infoResult = TSWApi.ApiClient.getInfo httpClient config
-                        
-                        let elapsed = DateTime.Now - startTime
-                        lastResponseTime.Set (Some elapsed)
-                        
-                        match infoResult with
-                        | Ok info ->
-                            connectionState.Set (ApiConnectionState.Connected info)
-                            isConnecting.Set false
-                            addToast $"Connected to {info.Meta.GameName}" false
-                            
-                            // Load root nodes
-                            let! listResult = TSWApi.ApiClient.listNodes httpClient config None
-                            match listResult with
-                            | Ok listResp ->
-                                let rootNodes =
-                                    listResp.Nodes
-                                    |> Option.defaultValue []
-                                    |> List.map (fun n ->
-                                        { Path = n.NodePath
-                                          Name = n.NodeName
-                                          IsExpanded = false
-                                          Children = None
-                                          Endpoints = n.Endpoints })
-                                treeRoot.Set rootNodes
-                            | Error _ ->
-                                addToast "Failed to load root nodes" true
+                        match TSWApi.Http.createConfigWithUrl baseUrl.Current (CommKey.value key) with
                         | Error err ->
-                            let msg =
-                                match err with
-                                | NetworkError ex -> $"Network error: {ex.Message}"
-                                | HttpError (status, body) -> $"HTTP {status}: {body}"
-                                | AuthError msg -> $"Auth error: {msg}"
-                                | ParseError msg -> $"Parse error: {msg}"
-                            connectionState.Set (ApiConnectionState.Error msg)
+                            connectionState.Set (ApiConnectionState.Error "Invalid configuration")
                             isConnecting.Set false
-                            addToast msg true
+                            addToast "Invalid configuration" true
+                        | Ok config ->
+                            let! infoResult = TSWApi.ApiClient.getInfo httpClient config
+                            
+                            let elapsed = DateTime.Now - startTime
+                            lastResponseTime.Set (Some elapsed)
+                            
+                            match infoResult with
+                            | Ok info ->
+                                apiConfig.Set (Some config)
+                                connectionState.Set (ApiConnectionState.Connected info)
+                                isConnecting.Set false
+                                addToast $"Connected to {info.Meta.GameName}" false
+                                
+                                // Load root nodes
+                                let! listResult = TSWApi.ApiClient.listNodes httpClient config None
+                                match listResult with
+                                | Ok listResp ->
+                                    let rootNodes =
+                                        listResp.Nodes
+                                        |> Option.defaultValue []
+                                        |> List.map (fun n ->
+                                            { Path = n.NodePath
+                                              Name = n.NodeName
+                                              IsExpanded = false
+                                              Children = None
+                                              Endpoints = n.Endpoints })
+                                    treeRoot.Set rootNodes
+                                | Error _ ->
+                                    addToast "Failed to load root nodes" true
+                            | Error err ->
+                                let msg =
+                                    match err with
+                                    | NetworkError ex -> $"Network error: {ex.Message}"
+                                    | HttpError (status, body) -> $"HTTP {status}: {body}"
+                                    | AuthError msg -> $"Auth error: {msg}"
+                                    | ParseError msg -> $"Parse error: {msg}"
+                                    | ConfigError msg -> $"Config error: {msg}"
+                                connectionState.Set (ApiConnectionState.Error msg)
+                                isConnecting.Set false
+                                addToast msg true
                 } |> Async.StartImmediate
             
             /// Disconnect from the API
             let disconnect () =
+                apiConfig.Set None
                 connectionState.Set ApiConnectionState.Disconnected
                 treeRoot.Set []
                 selectedNode.Set None
@@ -119,11 +134,8 @@ module ApiExplorer =
             
             /// Expand a tree node (lazy load children)
             let rec expandNode (nodePath: string) =
-                match connectionState.Current with
-                | ApiConnectionState.Connected _ ->
-                    // Get current config
-                    let config = TSWApi.Http.createConfigWithUrl baseUrl.Current commKey.Current
-                    
+                match connectionState.Current, apiConfig.Current with
+                | ApiConnectionState.Connected _, Some config ->
                     async {
                         let startTime = DateTime.Now
                         let! listResult = TSWApi.ApiClient.listNodes httpClient config (Some nodePath)
@@ -161,6 +173,7 @@ module ApiExplorer =
                                 | HttpError (status, body) -> $"HTTP {status}: {body}"
                                 | AuthError msg -> $"Auth error: {msg}"
                                 | ParseError msg -> $"Parse error: {msg}"
+                                | ConfigError msg -> $"Config error: {msg}"
                             addToast msg true
                     } |> Async.StartImmediate
                 | _ -> ()
@@ -191,10 +204,8 @@ module ApiExplorer =
             
             /// Get value for an endpoint
             let getEndpointValue (endpointPath: string) =
-                match connectionState.Current with
-                | ApiConnectionState.Connected _ ->
-                    let config = TSWApi.Http.createConfigWithUrl baseUrl.Current commKey.Current
-                    
+                match connectionState.Current, apiConfig.Current with
+                | ApiConnectionState.Connected _, Some config ->
                     async {
                         let startTime = DateTime.Now
                         let! getResult = TSWApi.ApiClient.getValue httpClient config endpointPath
@@ -217,6 +228,7 @@ module ApiExplorer =
                                 | HttpError (status, body) -> $"HTTP {status}: {body}"
                                 | AuthError msg -> $"Auth error: {msg}"
                                 | ParseError msg -> $"Parse error: {msg}"
+                                | ConfigError msg -> $"Config error: {msg}"
                             addToast msg true
                     } |> Async.StartImmediate
                 | _ -> ()
