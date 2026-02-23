@@ -43,9 +43,12 @@ let ``ApiError ParseError carries message`` () =
 
 [<Fact>]
 let ``ApiConfig defaults to localhost`` () =
-    let config = { BaseUrl = "http://localhost:31270"; CommKey = "test-key" }
-    Assert.Equal("http://localhost:31270", config.BaseUrl)
-    Assert.Equal("test-key", config.CommKey)
+    match CommKey.create "test-key" with
+    | Ok key ->
+        let config = { BaseUrl = BaseUrl.defaultUrl; CommKey = key }
+        Assert.Equal("http://localhost:31270", BaseUrl.value config.BaseUrl)
+        Assert.Equal("test-key", CommKey.value config.CommKey)
+    | Error e -> Assert.Fail($"Failed to create test config: {e}")
 
 // ── InfoResponse deserialization ──
 
@@ -236,3 +239,74 @@ let ``ApiResult Error carries ApiError`` () =
     match result with
     | Error (AuthError msg) -> Assert.Equal("bad key", msg)
     | _ -> Assert.Fail("Expected Error AuthError")
+
+// ── BaseUrl validation tests ──
+
+[<Fact>]
+let ``BaseUrl.create rejects empty string`` () =
+    let result = BaseUrl.create ""
+    match result with
+    | Error (ConfigError msg) -> Assert.Contains("empty", msg)
+    | _ -> Assert.Fail("Expected ConfigError for empty string")
+
+[<Fact>]
+let ``BaseUrl.create rejects non-http URL`` () =
+    let result = BaseUrl.create "ftp://localhost:31270"
+    match result with
+    | Error (ConfigError msg) -> Assert.Contains("http://", msg)
+    | _ -> Assert.Fail("Expected ConfigError for non-http URL")
+
+[<Fact>]
+let ``BaseUrl.create trims trailing slash`` () =
+    let result = BaseUrl.create "http://localhost:31270/"
+    match result with
+    | Ok url -> Assert.Equal("http://localhost:31270", BaseUrl.value url)
+    | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
+
+[<Fact>]
+let ``BaseUrl.create accepts valid http URL`` () =
+    let result = BaseUrl.create "http://localhost:31270"
+    match result with
+    | Ok _ -> ()
+    | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
+
+[<Fact>]
+let ``BaseUrl.create accepts valid https URL`` () =
+    let result = BaseUrl.create "https://example.com:8080"
+    match result with
+    | Ok _ -> ()
+    | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
+
+[<Fact>]
+let ``BaseUrl.defaultUrl is localhost:31270`` () =
+    Assert.Equal("http://localhost:31270", BaseUrl.value BaseUrl.defaultUrl)
+
+// ── CommKey validation tests ──
+
+[<Fact>]
+let ``CommKey.create rejects empty string`` () =
+    let result = CommKey.create ""
+    match result with
+    | Error (AuthError msg) -> Assert.Contains("empty", msg)
+    | _ -> Assert.Fail("Expected AuthError for empty string")
+
+[<Fact>]
+let ``CommKey.create rejects whitespace-only`` () =
+    let result = CommKey.create "   "
+    match result with
+    | Error (AuthError msg) -> Assert.Contains("empty", msg)
+    | _ -> Assert.Fail("Expected AuthError for whitespace-only string")
+
+[<Fact>]
+let ``CommKey.create trims whitespace`` () =
+    let result = CommKey.create " key123 "
+    match result with
+    | Ok key -> Assert.Equal("key123", CommKey.value key)
+    | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
+
+[<Fact>]
+let ``CommKey.create accepts valid key`` () =
+    let result = CommKey.create "valid-comm-key-123"
+    match result with
+    | Ok _ -> ()
+    | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
