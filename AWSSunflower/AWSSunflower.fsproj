@@ -6,6 +6,9 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="Types.fs" />
+        <Compile Include="SerialPort.fs" />
+        <Compile Include="Components.fs" />
         <Compile Include="Program.fs"/>
     </ItemGroup>
 
