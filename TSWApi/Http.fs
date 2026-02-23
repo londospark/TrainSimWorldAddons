@@ -80,6 +80,7 @@ module Http =
             try
                 let url = $"{BaseUrl.value config.BaseUrl}{path}"
                 use request = new HttpRequestMessage(HttpMethod.Get, url)
+                request.Version <- Version(1, 1)
                 request.Headers.Add("DTGCommKey", CommKey.value config.CommKey)
 
                 let! response =
