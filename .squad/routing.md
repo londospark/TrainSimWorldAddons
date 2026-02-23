@@ -12,4 +12,5 @@
 | Work monitoring, backlog | Ralph |
 | F# implementation (general) | Dolgoch + Sir Haydn |
 | Library project setup, .fsproj, solution changes | Dolgoch |
+| Avalonia UI, FuncUI components, tabs, desktop app layout | Tom Rolt |
 | Multi-domain / "team" request | Talyllyn + relevant agents |

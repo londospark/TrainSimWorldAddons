@@ -30,5 +30,13 @@
     "created_at": "2026-02-23T22:08:00Z",
     "legacy_named": false,
     "status": "active"
+  },
+  {
+    "persistent_name": "Tom Rolt",
+    "universe": "talyllyn-railway",
+    "role": "UI Dev",
+    "created_at": "2026-02-23T22:52:00Z",
+    "legacy_named": false,
+    "status": "active"
   }
 ]

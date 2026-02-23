@@ -34,3 +34,13 @@
 - XML doc comments on all public functions with param/returns tags. docs/index.md and quickstart.md cover all modules with working code examples. README.md includes quick start and build commands.
 
 **Decision:** APPROVED for Phase 1 release.
+### Typestate / DDD Design for ApiConfig (Issue #21)
+- **Pattern chosen:** Single-case DUs with private constructors (`type BaseUrl = private BaseUrl of string`) + smart constructors returning `Result<T, ApiError>`. This is the idiomatic F# DDD approach.
+- **Key insight:** Compile-time safety comes from opaque value types (`BaseUrl`, `CommKey`), not from making `ApiConfig` itself private. If both fields are validated types, the record is valid by construction.
+- **HttpClient stays separate** from config — it's an infrastructure concern with different lifetime semantics (long-lived, reused). Bundling it would violate SRP.
+- **`[<RequireQualifiedAccess>]`** on companion modules prevents name collisions (`BaseUrl.create` vs `CommKey.create`).
+- **Privacy model:** `private` on DU cases in F# is scoped to the enclosing module. Sub-modules (companion modules) within the same parent can access private constructors. Code in other files (Http.fs, ApiClient.fs) cannot.
+- **New `ConfigError` case** added to `ApiError` for URL validation errors. `AuthError` kept for CommKey validation (semantically correct).
+- **Test impact:** 14 of 53 tests need updating. TreeNavigation (16 tests) and most TypesTests are unaffected. Main changes are mechanical: replace record literals with smart constructor calls.
+- **`discoverCommKey`** return type changes from `Result<string, ApiError>` to `Result<CommKey, ApiError>`, making it compose directly into config creation.
+- **Design decision written to:** `.squad/decisions/inbox/talyllyn-typestate-design.md`
