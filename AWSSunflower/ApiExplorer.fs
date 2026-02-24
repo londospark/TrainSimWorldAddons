@@ -50,13 +50,15 @@ module ApiExplorer =
           TreeRoot: TreeNodeState list
           SelectedNode: TreeNodeState option
           EndpointValues: Map<string, string>
-          LastResponseTime: TimeSpan option }
+          LastResponseTime: TimeSpan option
+          SearchQuery: string }
 
     // ─── Messages ───
 
     type Msg =
         | SetBaseUrl of string
         | SetCommKey of string
+        | SetSearchQuery of string
         | Connect
         | Disconnect
         | ConnectSuccess of commKey: string * config: ApiConfig * info: InfoResponse * elapsed: TimeSpan
@@ -64,7 +66,7 @@ module ApiExplorer =
         | RootNodesLoaded of nodes: TreeNodeState list * elapsed: TimeSpan
         | RootNodesError of string
         | ExpandNode of path: string
-        | NodeExpanded of path: string * children: TreeNodeState list * elapsed: TimeSpan
+        | NodeExpanded of path: string * children: TreeNodeState list * endpoints: Endpoint list option * elapsed: TimeSpan
         | CollapseNode of path: string
         | ToggleExpand of path: string
         | SelectNode of TreeNodeState
@@ -83,7 +85,8 @@ module ApiExplorer =
           TreeRoot = []
           SelectedNode = None
           EndpointValues = Map.empty
-          LastResponseTime = None }
+          LastResponseTime = None
+          SearchQuery = "" }
 
     let private stripRootPrefix (path: string) =
         if not (isNull path) && path.StartsWith("Root/") then path.Substring(5) else path
@@ -163,11 +166,11 @@ module ApiExplorer =
                                            else nodePath + "/" + name
                                 { Path = path; Name = name; IsExpanded = false
                                   Children = None; Endpoints = n.Endpoints })
-                        return (nodePath, children, elapsed)
+                        return (nodePath, children, listResp.Endpoints, elapsed)
                     | Error err -> return failwithf "Expand failed: %A" err
                 })
             ()
-            (fun (p, ch, elapsed) -> NodeExpanded(p, ch, elapsed))
+            (fun (p, ch, eps, elapsed) -> NodeExpanded(p, ch, eps, elapsed))
             (fun ex -> ApiError ex.Message)
 
     let private getValueCmd (config: ApiConfig) (endpointPath: string) =
@@ -211,6 +214,7 @@ module ApiExplorer =
         match msg with
         | SetBaseUrl url -> { model with BaseUrl = url }, Cmd.none
         | SetCommKey key -> { model with CommKey = key }, Cmd.none
+        | SetSearchQuery query -> { model with SearchQuery = query }, Cmd.none
 
         | Connect ->
             { model with IsConnecting = true; ConnectionState = ApiConnectionState.Connecting },
@@ -245,9 +249,10 @@ module ApiExplorer =
             | Some config -> model, expandNodeCmd config path
             | None -> model, Cmd.none
 
-        | NodeExpanded (path, children, elapsed) ->
+        | NodeExpanded (path, children, endpoints, elapsed) ->
             { model with
-                TreeRoot = updateTreeNode path (fun n -> { n with IsExpanded = true; Children = Some children }) model.TreeRoot
+                TreeRoot = updateTreeNode path (fun n -> 
+                    { n with IsExpanded = true; Children = Some children; Endpoints = endpoints }) model.TreeRoot
                 LastResponseTime = Some elapsed }, Cmd.none
 
         | CollapseNode path ->
@@ -397,6 +402,27 @@ module ApiExplorer =
             ]
         ] :> IView
 
+    let rec private filterTree (query: string) (nodes: TreeNodeState list) : TreeNodeState list =
+        if String.IsNullOrWhiteSpace(query) then
+            nodes
+        else
+            let lowerQuery = query.ToLowerInvariant()
+            nodes |> List.choose (fun node ->
+                let nameMatch = node.Name.ToLowerInvariant().Contains(lowerQuery)
+                let filteredChildren =
+                    match node.Children with
+                    | Some children -> filterTree query children
+                    | None -> []
+                if nameMatch || filteredChildren.Length > 0 then
+                    let updatedChildren =
+                        match node.Children with
+                        | Some _ when filteredChildren.Length > 0 -> Some filteredChildren
+                        | _ -> node.Children
+                    Some { node with Children = updatedChildren }
+                else
+                    None
+            )
+
     let private treeBrowserPanel (model: Model) (dispatch: Dispatch<Msg>) =
         Border.create [
             Border.dock Dock.Left
@@ -404,13 +430,28 @@ module ApiExplorer =
             Border.borderBrush (SolidColorBrush(Color.Parse("#3A3A3A")))
             Border.borderThickness (0.0, 0.0, 1.0, 0.0)
             Border.child (
-                ScrollViewer.create [
-                    ScrollViewer.content (
-                        StackPanel.create [
-                            StackPanel.orientation Orientation.Vertical
-                            StackPanel.children (model.TreeRoot |> List.map (renderTreeNode dispatch))
+                StackPanel.create [
+                    StackPanel.orientation Orientation.Vertical
+                    StackPanel.children [
+                        TextBox.create [
+                            TextBox.watermark "Search nodes..."
+                            TextBox.text model.SearchQuery
+                            TextBox.onTextChanged (SetSearchQuery >> dispatch)
+                            TextBox.margin 5.0
+                            TextBox.fontSize 12.0
                         ]
-                    )
+                        ScrollViewer.create [
+                            ScrollViewer.content (
+                                StackPanel.create [
+                                    StackPanel.orientation Orientation.Vertical
+                                    StackPanel.children (
+                                        let filteredNodes = filterTree model.SearchQuery model.TreeRoot
+                                        filteredNodes |> List.map (renderTreeNode dispatch)
+                                    )
+                                ]
+                            )
+                        ]
+                    ]
                 ]
             )
         ]

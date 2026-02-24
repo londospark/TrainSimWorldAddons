@@ -14,3 +14,8 @@
 - TSWApi/ — API library for Train Sim World 6 (Types, Http, ApiClient, TreeNavigation modules)
 
 ## Learnings
+- AWSSunflower/ApiExplorer.fs — API Explorer component with tree browser, connects to TSW6 API via TSWApi library
+- **Async threading rule:** After any `Async.AwaitTask` call (e.g. HttpClient), the continuation may resume on a thread pool thread, NOT the UI thread. Always capture `SynchronizationContext.Current` before the async block and call `do! Async.SwitchToContext uiContext` after each `let!` that wraps a Task, before touching any FuncUI state (`IWritable.Set`). This matches the pattern already established in SerialPort.fs.
+- The TSWApi `sendRequest` function uses `Async.AwaitTask` on `HttpClient.SendAsync`, which means its async continuations can land on any thread.
+- FuncUI `IWritable.Set` called from a non-UI thread silently fails to trigger a re-render — no exception, no crash, just a frozen UI. Very hard to diagnose.
+- Three async functions in ApiExplorer.fs need this pattern: `connect()`, `expandNode()`, `getEndpointValue()`.

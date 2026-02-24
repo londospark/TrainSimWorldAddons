@@ -129,7 +129,7 @@ let ``ExpandNode without config returns none`` () =
 let ``NodeExpanded updates tree with children`` () =
     let initial = { connectedModel () with TreeRoot = [ makeNode "Root/A" "A" ] }
     let children = [ makeNode "Root/A/C1" "C1"; makeNode "Root/A/C2" "C2" ]
-    let model, cmd = update (NodeExpanded("Root/A", children, testElapsed)) initial
+    let model, cmd = update (NodeExpanded("Root/A", children, None, testElapsed)) initial
     let node = model.TreeRoot.[0]
     Assert.True(node.IsExpanded)
     Assert.True(node.Children.IsSome)
