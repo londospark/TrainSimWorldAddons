@@ -160,7 +160,7 @@ module Main =
                     TabItem.create [
                         TabItem.header "API Explorer"
                         TabItem.content (
-                            ApiExplorer.view addToast
+                            ApiExplorer.view ()
                         )
                     ]
                 ]
