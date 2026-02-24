@@ -183,9 +183,12 @@ module ApiExplorer =
                     match getResult with
                     | Ok getResp ->
                         let valueStr =
-                            getResp.Values
-                            |> Seq.map (fun kvp -> sprintf "%s: %O" kvp.Key kvp.Value)
-                            |> String.concat ", "
+                            if isNull (getResp.Values :> obj) || getResp.Values.Count = 0 then
+                                "(no values returned)"
+                            else
+                                getResp.Values
+                                |> Seq.map (fun kvp -> sprintf "%s: %O" kvp.Key kvp.Value)
+                                |> String.concat ", "
                         return (endpointPath, valueStr, elapsed)
                     | Error err -> return failwithf "Get failed: %A" err
                 })
@@ -430,10 +433,10 @@ module ApiExplorer =
             Border.borderBrush (SolidColorBrush(Color.Parse("#3A3A3A")))
             Border.borderThickness (0.0, 0.0, 1.0, 0.0)
             Border.child (
-                StackPanel.create [
-                    StackPanel.orientation Orientation.Vertical
-                    StackPanel.children [
+                DockPanel.create [
+                    DockPanel.children [
                         TextBox.create [
+                            TextBox.dock Dock.Top
                             TextBox.watermark "Search nodes..."
                             TextBox.text model.SearchQuery
                             TextBox.onTextChanged (SetSearchQuery >> dispatch)
