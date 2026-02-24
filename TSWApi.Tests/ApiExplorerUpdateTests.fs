@@ -185,3 +185,82 @@ let ``EndpointValueReceived adds to map`` () =
     Assert.Equal("42", Map.find "Root/A/prop" model.EndpointValues)
     Assert.Equal(Some testElapsed, model.LastResponseTime)
     Assert.True(cmd |> List.isEmpty)
+
+// ─── NodeExpanded with endpoints ───
+
+[<Fact>]
+let ``NodeExpanded sets parent endpoints`` () =
+    let endpoints = Some [ { Name = "Property.Speed"; Writable = false } ]
+    let initial = { connectedModel () with TreeRoot = [ makeNode "Player" "Player" ] }
+    let children = [ makeNode "Player/TransformComponent0" "TransformComponent0" ]
+    let model, cmd = update (NodeExpanded("Player", children, endpoints, testElapsed)) initial
+    let node = model.TreeRoot.[0]
+    Assert.True(node.IsExpanded)
+    Assert.True(node.Children.IsSome)
+    Assert.True(node.Endpoints.IsSome)
+    Assert.Equal(1, node.Endpoints.Value.Length)
+    Assert.Equal("Property.Speed", node.Endpoints.Value.[0].Name)
+    Assert.True(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``NodeExpanded with nested path updates correct node`` () =
+    let parent = makeNode "Player" "Player"
+    let child = makeNode "Player/TransformComponent0" "TransformComponent0"
+    let parentWithChild = { parent with IsExpanded = true; Children = Some [ child ] }
+    let initial = { connectedModel () with TreeRoot = [ parentWithChild ] }
+    let grandchildren = [ makeNode "Player/TransformComponent0/Position" "Position" ]
+    let endpoints = Some [ { Name = "Property.X"; Writable = true } ]
+    let model, cmd = update (NodeExpanded("Player/TransformComponent0", grandchildren, endpoints, testElapsed)) initial
+    let updatedParent = model.TreeRoot.[0]
+    Assert.True(updatedParent.Children.IsSome)
+    let updatedChild = updatedParent.Children.Value.[0]
+    Assert.True(updatedChild.IsExpanded)
+    Assert.True(updatedChild.Children.IsSome)
+    Assert.Equal(1, updatedChild.Children.Value.Length)
+    Assert.True(updatedChild.Endpoints.IsSome)
+    Assert.Equal("Property.X", updatedChild.Endpoints.Value.[0].Name)
+    Assert.True(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``ToggleExpand on expanded child collapses it`` () =
+    let parent = makeNode "Player" "Player"
+    let child = { makeNode "Player/TransformComponent0" "TransformComponent0" with 
+                    IsExpanded = true
+                    Children = Some [ makeNode "Player/TransformComponent0/Position" "Position" ] }
+    let parentWithChild = { parent with IsExpanded = true; Children = Some [ child ] }
+    let initial = { connectedModel () with TreeRoot = [ parentWithChild ] }
+    let model, cmd = update (ToggleExpand "Player/TransformComponent0") initial
+    let updatedParent = model.TreeRoot.[0]
+    Assert.True(updatedParent.Children.IsSome)
+    let updatedChild = updatedParent.Children.Value.[0]
+    Assert.False(updatedChild.IsExpanded)
+    Assert.True(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``ToggleExpand on unexpanded child with no children triggers expand`` () =
+    let parent = makeNode "Player" "Player"
+    let child = makeNode "Player/TransformComponent0" "TransformComponent0"
+    let parentWithChild = { parent with IsExpanded = true; Children = Some [ child ] }
+    let initial = { connectedModel () with TreeRoot = [ parentWithChild ] }
+    let model, cmd = update (ToggleExpand "Player/TransformComponent0") initial
+    Assert.False(cmd |> List.isEmpty)
+
+// ─── SetSearchQuery ───
+
+[<Fact>]
+let ``SetSearchQuery updates model`` () =
+    let model, cmd = update (SetSearchQuery "Player") (connectedModel ())
+    Assert.Equal("Player", model.SearchQuery)
+    Assert.True(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``SetSearchQuery with empty string clears search`` () =
+    let initial = { connectedModel () with SearchQuery = "Player" }
+    let model, cmd = update (SetSearchQuery "") initial
+    Assert.Equal("", model.SearchQuery)
+    Assert.True(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``Initial model has empty SearchQuery`` () =
+    let model = init ()
+    Assert.Equal("", model.SearchQuery)
