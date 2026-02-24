@@ -44,3 +44,28 @@
 - **Test impact:** 14 of 53 tests need updating. TreeNavigation (16 tests) and most TypesTests are unaffected. Main changes are mechanical: replace record literals with smart constructor calls.
 - **`discoverCommKey`** return type changes from `Result<string, ApiError>` to `Result<CommKey, ApiError>`, making it compose directly into config creation.
 - **Design decision written to:** `.squad/decisions/inbox/talyllyn-typestate-design.md`
+
+### Endpoint Binding, Polling, and Serial Output Architecture
+
+**Review Date:** 2025-02-24
+
+**Feature Request:** Dynamic endpoint monitoring system — bind endpoints to locomotives, poll at 500ms intervals, send value changes over serial port, persist bindings across app restarts.
+
+**Architecture Decisions:**
+- **Data Model:** `LocoId` is composite key (Provider + Product + BlueprintId) for uniqueness across DLCs. `BoundEndpoint` stores persistent binding, `PollingState` tracks transient runtime state (last value, error count).
+- **Config Format:** JSON at `%APPDATA%\LondoSpark\AWSSunflower\bindings.json` using System.Text.Json. Versioned schema for future migration.
+- **Polling Strategy:** Timer-based (DispatcherTimer at 500ms) matches existing SerialPort.startPortPolling pattern. Simpler than recursive Cmd loops, easier to test and manage lifecycle (IDisposable).
+- **Loco Detection:** Query Player tree every 3 seconds to extract LocoId. Location TBD (requires manual exploration with API Explorer). Returns `LocoId option` to handle "not driving" state.
+- **Serial Integration:** Reuse existing `SerialPort.sendAsync`, no changes needed. Data format: `"nodePath/endpointName=value\n"` (newline-delimited, parseable).
+- **MVU Changes:** New messages (`BindEndpoint`, `PollingTick`, `PollingValueReceived`, `LocoDetected`), extended Model (CurrentLoco, BoundEndpoints, PollingStates, timers), new "Bind" button in endpoint UI.
+- **TSWApi Impact:** NONE. Existing `getValue` sufficient, polling logic belongs in app layer.
+
+**Key Files:**
+- New: `AWSSunflower/BindingPersistence.fs` (JSON load/save), `AWSSunflower/LocoDetection.fs` (loco ID extraction)
+- Modified: `AWSSunflower/Types.fs` (add types), `AWSSunflower/ApiExplorer.fs` (extend MVU)
+
+**Work Decomposition:** 6 phases, 14-20 hours total (data model → loco detection → binding UI → polling engine → serial integration → integration testing). Critical path, no parallelization.
+
+**Open Questions:** Loco metadata path in Player tree (action: manual exploration), serial protocol format (action: user confirmation), polling interval configurable vs hardcoded.
+
+**Decision written to:** `.squad/decisions/inbox/talyllyn-binding-polling-serial-architecture.md`
