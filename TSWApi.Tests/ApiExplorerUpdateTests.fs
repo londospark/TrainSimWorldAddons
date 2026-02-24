@@ -264,3 +264,143 @@ let ``SetSearchQuery with empty string clears search`` () =
 let ``Initial model has empty SearchQuery`` () =
     let model = init ()
     Assert.Equal("", model.SearchQuery)
+
+// ─── Binding ───
+
+let connectedWithLoco () =
+    { connectedModel () with
+        CurrentLoco = Some "TestLoco_123"
+        BindingsConfig = { Version = 1; Locos = [] } }
+
+[<Fact>]
+let ``BindEndpoint adds binding when loco is known`` () =
+    let model = connectedWithLoco ()
+    let newModel, _ = update (BindEndpoint ("CurrentDrivableActor/BP_AWS", "Property.Sunflower")) model
+    let loco = newModel.BindingsConfig.Locos |> List.find (fun l -> l.LocoName = "TestLoco_123")
+    Assert.Equal(1, loco.BoundEndpoints.Length)
+    Assert.Equal("CurrentDrivableActor/BP_AWS", loco.BoundEndpoints.[0].NodePath)
+    Assert.Equal("Property.Sunflower", loco.BoundEndpoints.[0].EndpointName)
+    Assert.True(newModel.IsPolling)
+
+[<Fact>]
+let ``BindEndpoint does nothing when no loco detected`` () =
+    let model = { connectedModel () with CurrentLoco = None; BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, _ = update (BindEndpoint ("SomePath", "SomeEndpoint")) model
+    Assert.True(newModel.BindingsConfig.Locos.IsEmpty)
+
+[<Fact>]
+let ``UnbindEndpoint removes binding`` () =
+    let model =
+        { connectedWithLoco () with
+            BindingsConfig =
+                { Version = 1
+                  Locos = [ { LocoName = "TestLoco_123"
+                              BoundEndpoints = [ { NodePath = "A"; EndpointName = "B"; Label = "A.B" }
+                                                 { NodePath = "C"; EndpointName = "D"; Label = "C.D" } ] } ] } }
+    let newModel, _ = update (UnbindEndpoint ("A", "B")) model
+    let loco = newModel.BindingsConfig.Locos |> List.find (fun l -> l.LocoName = "TestLoco_123")
+    Assert.Equal(1, loco.BoundEndpoints.Length)
+    Assert.Equal("C", loco.BoundEndpoints.[0].NodePath)
+
+// ─── Loco Detection ───
+
+[<Fact>]
+let ``LocoDetected sets CurrentLoco`` () =
+    let model = connectedModel ()
+    let newModel, _ = update (LocoDetected "RVM_Class350_ABC") model
+    Assert.Equal(Some "RVM_Class350_ABC", newModel.CurrentLoco)
+
+[<Fact>]
+let ``LocoDetectError does not change model`` () =
+    let model = connectedModel ()
+    let newModel, _ = update (LocoDetectError "some error") model
+    Assert.True(newModel.CurrentLoco.IsNone)
+
+// ─── Polling ───
+
+[<Fact>]
+let ``StartPolling sets IsPolling`` () =
+    let model = connectedModel ()
+    let newModel, _ = update StartPolling model
+    Assert.True(newModel.IsPolling)
+
+[<Fact>]
+let ``StopPolling clears IsPolling`` () =
+    let model = { connectedModel () with IsPolling = true }
+    let newModel, _ = update StopPolling model
+    Assert.False(newModel.IsPolling)
+
+[<Fact>]
+let ``PollValueReceived updates PollingValues`` () =
+    let model = connectedModel ()
+    let newModel, _ = update (PollValueReceived ("key1", "42")) model
+    Assert.Equal(Some "42", Map.tryFind "key1" newModel.PollingValues)
+
+[<Fact>]
+let ``PollingTick with no bindings produces no command`` () =
+    let model = { connectedWithLoco () with IsPolling = true }
+    let _, cmd = update PollingTick model
+    Assert.True(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``PollingTick with bindings produces command`` () =
+    let model =
+        { connectedWithLoco () with
+            IsPolling = true
+            BindingsConfig =
+                { Version = 1
+                  Locos = [ { LocoName = "TestLoco_123"
+                              BoundEndpoints = [ { NodePath = "A"; EndpointName = "B"; Label = "A.B" } ] } ] } }
+    let _, cmd = update PollingTick model
+    Assert.False(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``PollingTick without config produces no command`` () =
+    let model = { init () with CurrentLoco = Some "Loco"; IsPolling = true }
+    let _, cmd = update PollingTick model
+    Assert.True(cmd |> List.isEmpty)
+
+// ─── Serial ───
+
+[<Fact>]
+let ``SetSerialPort updates SerialPortName`` () =
+    let model = connectedModel ()
+    let newModel, _ = update (SetSerialPort (Some "COM3")) model
+    Assert.Equal(Some "COM3", newModel.SerialPortName)
+
+[<Fact>]
+let ``DisconnectSerial clears SerialPort`` () =
+    let model = connectedModel ()
+    let newModel, _ = update DisconnectSerial model
+    Assert.True(newModel.SerialPort.IsNone)
+
+// ─── Init with new fields ───
+
+[<Fact>]
+let ``init has no CurrentLoco`` () =
+    let model = init ()
+    Assert.True(model.CurrentLoco.IsNone)
+
+[<Fact>]
+let ``init has polling disabled`` () =
+    let model = init ()
+    Assert.False(model.IsPolling)
+    Assert.True(model.PollingValues.IsEmpty)
+
+[<Fact>]
+let ``init has no serial port`` () =
+    let model = init ()
+    Assert.True(model.SerialPort.IsNone)
+    Assert.True(model.SerialPortName.IsNone)
+
+[<Fact>]
+let ``Disconnect clears binding state`` () =
+    let model =
+        { connectedWithLoco () with
+            IsPolling = true
+            PollingValues = Map.ofList [("a", "1")] }
+    let newModel, _ = update Disconnect model
+    Assert.True(newModel.CurrentLoco.IsNone)
+    Assert.False(newModel.IsPolling)
+    Assert.True(newModel.PollingValues.IsEmpty)
+    Assert.True(newModel.SerialPort.IsNone)

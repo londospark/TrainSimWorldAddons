@@ -19,3 +19,5 @@
 - The TSWApi `sendRequest` function uses `Async.AwaitTask` on `HttpClient.SendAsync`, which means its async continuations can land on any thread.
 - FuncUI `IWritable.Set` called from a non-UI thread silently fails to trigger a re-render — no exception, no crash, just a frozen UI. Very hard to diagnose.
 - Three async functions in ApiExplorer.fs need this pattern: `connect()`, `expandNode()`, `getEndpointValue()`.
+- **Null-guard API responses:** `GetResponse.Values` (Dictionary<string, obj>) can be null when deserialized — always null-check before iterating with `Seq.map`.
+- **ScrollViewer in StackPanel won't scroll:** StackPanel gives children infinite height. Use DockPanel with the fixed-size element docked to Top and ScrollViewer filling remaining space.
