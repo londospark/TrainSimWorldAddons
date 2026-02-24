@@ -124,6 +124,8 @@ module Types =
           NodePath: string
           /// The display name of this node (e.g., "TransformComponent0").
           NodeName: string
+          /// Short name used in child listings (e.g., "TransformComponent0"). Null when not present.
+          Name: string
           /// Optional child nodes. None if not present in the response.
           [<JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)>]
           Nodes: Node list option

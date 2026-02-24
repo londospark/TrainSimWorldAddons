@@ -85,6 +85,14 @@ module ApiExplorer =
           EndpointValues = Map.empty
           LastResponseTime = None }
 
+    let private stripRootPrefix (path: string) =
+        if not (isNull path) && path.StartsWith("Root/") then path.Substring(5) else path
+
+    let private effectiveName (n: TSWApi.Types.Node) =
+        if not (System.String.IsNullOrEmpty n.NodeName) then n.NodeName
+        elif not (System.String.IsNullOrEmpty n.Name) then n.Name
+        else ""
+
     // ─── Async commands ───
 
     let private connectCmd (baseUrl: string) (commKey: string) =
@@ -128,7 +136,7 @@ module ApiExplorer =
                             listResp.Nodes
                             |> Option.defaultValue []
                             |> List.map (fun n ->
-                                { Path = n.NodePath; Name = n.NodeName; IsExpanded = false
+                                { Path = stripRootPrefix n.NodePath; Name = effectiveName n; IsExpanded = false
                                   Children = None; Endpoints = n.Endpoints })
                         return (nodes, elapsed)
                     | Error err -> return failwithf "List failed: %A" err
@@ -150,7 +158,10 @@ module ApiExplorer =
                             listResp.Nodes
                             |> Option.defaultValue []
                             |> List.map (fun n ->
-                                { Path = n.NodePath; Name = n.NodeName; IsExpanded = false
+                                let name = effectiveName n
+                                let path = if not (System.String.IsNullOrEmpty n.NodePath) then stripRootPrefix n.NodePath
+                                           else nodePath + "/" + name
+                                { Path = path; Name = name; IsExpanded = false
                                   Children = None; Endpoints = n.Endpoints })
                         return (nodePath, children, elapsed)
                     | Error err -> return failwithf "Expand failed: %A" err

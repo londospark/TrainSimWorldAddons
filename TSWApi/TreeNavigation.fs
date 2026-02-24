@@ -18,10 +18,13 @@ module TreeNavigation =
     let rec getNodeAtPath (nodes: Node list) (path: string list) : Node option =
         match path with
         | [] -> None
-        | [ name ] -> nodes |> List.tryFind (fun n -> n.NodeName = name)
+        | [ name ] ->
+            nodes |> List.tryFind (fun n ->
+                n.NodeName = name || (System.String.IsNullOrEmpty(n.NodeName) && n.Name = name))
         | name :: rest ->
             nodes
-            |> List.tryFind (fun n -> n.NodeName = name)
+            |> List.tryFind (fun n ->
+                n.NodeName = name || (System.String.IsNullOrEmpty(n.NodeName) && n.Name = name))
             |> Option.bind (fun n ->
                 match n.Nodes with
                 | Some children -> getNodeAtPath children rest

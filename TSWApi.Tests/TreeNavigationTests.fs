@@ -38,27 +38,33 @@ let ``buildNodePath returns empty for empty list`` () =
 let sampleTree: Node list =
     [ { NodePath = "Root/VirtualRailDriver"
         NodeName = "VirtualRailDriver"
+        Name = null
         Nodes = None
         Endpoints = None }
       { NodePath = "Root/Player"
         NodeName = "Player"
+        Name = null
         Nodes =
             Some
                 [ { NodePath = "Root/Player/TransformComponent0"
                     NodeName = "TransformComponent0"
+                    Name = null
                     Nodes = None
                     Endpoints = None }
                   { NodePath = "Root/Player/PC_InputComponent0"
                     NodeName = "PC_InputComponent0"
+                    Name = null
                     Nodes = None
                     Endpoints = None } ]
         Endpoints = None }
       { NodePath = "Root/CurrentDrivableActor"
         NodeName = "CurrentDrivableActor"
+        Name = null
         Nodes =
             Some
                 [ { NodePath = "Root/CurrentDrivableActor/AWS_TPWS_Service"
                     NodeName = "AWS_TPWS_Service"
+                    Name = null
                     Nodes = Some []
                     Endpoints =
                         Some
