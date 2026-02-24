@@ -36,6 +36,7 @@ module ApiExplorer =
                 isConnecting.Set true
                 connectionState.Set ApiConnectionState.Connecting
                 async {
+                  try
                     let startTime = DateTime.Now
                     
                     // First try to discover CommKey if not provided
@@ -121,6 +122,11 @@ module ApiExplorer =
                                 connectionState.Set (ApiConnectionState.Error msg)
                                 isConnecting.Set false
                                 addToast msg true
+                  with ex ->
+                    eprintfn "API Explorer connect error: %s" ex.Message
+                    connectionState.Set (ApiConnectionState.Error $"Unexpected error: {ex.Message}")
+                    isConnecting.Set false
+                    addToast $"Unexpected error: {ex.Message}" true
                 } |> Async.StartImmediate
             
             /// Disconnect from the API
@@ -138,6 +144,7 @@ module ApiExplorer =
                 match connectionState.Current, apiConfig.Current with
                 | ApiConnectionState.Connected _, Some config ->
                     async {
+                      try
                         let startTime = DateTime.Now
                         let! listResult = TSWApi.ApiClient.listNodes httpClient config (Some nodePath)
                         let elapsed = DateTime.Now - startTime
@@ -176,6 +183,9 @@ module ApiExplorer =
                                 | ParseError msg -> $"Parse error: {msg}"
                                 | ConfigError msg -> $"Config error: {msg}"
                             addToast msg true
+                      with ex ->
+                        eprintfn "API Explorer expandNode error: %s" ex.Message
+                        addToast $"Error expanding node: {ex.Message}" true
                     } |> Async.StartImmediate
                 | _ -> ()
             
@@ -208,6 +218,7 @@ module ApiExplorer =
                 match connectionState.Current, apiConfig.Current with
                 | ApiConnectionState.Connected _, Some config ->
                     async {
+                      try
                         let startTime = DateTime.Now
                         let! getResult = TSWApi.ApiClient.getValue httpClient config endpointPath
                         let elapsed = DateTime.Now - startTime
@@ -215,7 +226,6 @@ module ApiExplorer =
                         
                         match getResult with
                         | Ok getResp ->
-                            // Update the values map - store using the endpoint path as key
                             let valueStr =
                                 getResp.Values
                                 |> Seq.map (fun kvp -> $"{kvp.Key}: {kvp.Value}")
@@ -231,6 +241,9 @@ module ApiExplorer =
                                 | ParseError msg -> $"Parse error: {msg}"
                                 | ConfigError msg -> $"Config error: {msg}"
                             addToast msg true
+                      with ex ->
+                        eprintfn "API Explorer getEndpointValue error: %s" ex.Message
+                        addToast $"Error getting value: {ex.Message}" true
                     } |> Async.StartImmediate
                 | _ -> ()
             
