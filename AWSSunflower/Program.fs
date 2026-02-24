@@ -11,157 +11,89 @@ open Avalonia.FuncUI.DSL
 open Avalonia.Layout
 open Avalonia.Threading
 open CounterApp.SerialPortModule
-open CounterApp.Components
 
 module Main =
 
     let view () =
         Component(fun ctx ->
-            // State management (lifted state pattern)
-            let serialPorts = ctx.useState []
-            let selectedPort = ctx.useState None
-            let connectionState = ctx.useState ConnectionState.Disconnected
-            let isConnecting = ctx.useState false
-            let serialPortRef = ctx.useState(None, renderOnChange = false)
-            let toasts = ctx.useState []
-            
-            // Port polling setup
+            let model = ctx.useState (ApiExplorer.init ())
+
+            let rec dispatch (msg: ApiExplorer.Msg) =
+                Dispatcher.UIThread.Post(Action(fun () ->
+                    try
+                        let newModel, cmds = ApiExplorer.update msg model.Current
+                        model.Set newModel
+                        for sub in cmds do
+                            sub dispatch
+                    with ex ->
+                        eprintfn "[MVU] Update error for %A: %s" msg ex.Message
+                ))
+
+            // Port polling effect
             ctx.useEffect(
                 handler = (fun _ ->
                     let polling = startPortPolling (fun ports ->
-                        serialPorts.Set ports
+                        dispatch (ApiExplorer.PortsUpdated ports)
                     )
-                    
-                    { new IDisposable with
-                        member _.Dispose() =
-                            polling.Dispose()
-                    }
+                    { new IDisposable with member _.Dispose() = polling.Dispose() }
                 ),
                 triggers = [ EffectTrigger.AfterInit ]
             )
-            
-            // Auto-dismiss toasts after 5 seconds
+
+            // Toast auto-dismiss effect
             ctx.useEffect(
                 handler = (fun _ ->
-                    if toasts.Current.Length > 0 then
+                    if model.Current.Toasts.Length > 0 then
                         let timer = DispatcherTimer()
                         timer.Interval <- TimeSpan.FromSeconds 5.0
                         timer.Tick.Add(fun _ ->
-                            if toasts.Current.Length > 0 then
-                                let remaining = toasts.Current |> List.tail
-                                toasts.Set remaining
-                                if remaining.Length = 0 then
-                                    timer.Stop()
+                            if model.Current.Toasts.Length > 0 then
+                                dispatch (ApiExplorer.DismissToast model.Current.Toasts.Head.Id)
+                                if model.Current.Toasts.Length <= 1 then timer.Stop()
                         )
                         timer.Start()
-                        { new IDisposable with
-                            member _.Dispose() = timer.Stop()
-                        }
+                        { new IDisposable with member _.Dispose() = timer.Stop() }
                     else
-                        { new IDisposable with
-                            member _.Dispose() = ()
-                        }
+                        { new IDisposable with member _.Dispose() = () }
                 ),
-                triggers = [ EffectTrigger.AfterChange toasts ]
+                triggers = [ EffectTrigger.AfterChange model ]
             )
-            
-            /// Add a toast notification
-            let addToast message isError =
-                let newToast: Toast = {
-                    Id = Guid.NewGuid()
-                    Message = message
-                    IsError = isError
-                    CreatedAt = DateTime.Now
-                }
-                toasts.Set (toasts.Current @ [newToast])
-            
-            /// Dismiss a specific toast
-            let dismissToast (id: Guid) =
-                toasts.Set (toasts.Current |> List.filter (fun t -> t.Id <> id))
-            
-            /// Toggle connection to serial port
-            let toggleConnection () =
-                match connectionState.Current, selectedPort.Current with
-                | ConnectionState.Connected _, _ ->
-                    // Disconnect
-                    isConnecting.Set false
-                    serialPortRef.Set None |> ignore
-                    connectionState.Set ConnectionState.Disconnected
-                    addToast "Disconnected from port" false
-                    
-                | ConnectionState.Disconnected, Some portName ->
-                    // Connect
-                    isConnecting.Set true
-                    async {
-                        let! result = connectAsync portName 9600
-                        match result with
-                        | Ok port ->
-                            serialPortRef.Set (Some port)
-                            connectionState.Set (ConnectionState.Connected portName)
-                            isConnecting.Set false
-                            addToast $"Connected to {portName}" false
-                        | Error error ->
-                            connectionState.Set (ConnectionState.Error error)
-                            isConnecting.Set false
-                            let errorMsg =
-                                match error with
-                                | PortInUse portName -> $"Port {portName} is already in use"
-                                | PortNotFound portName -> $"Port {portName} not found"
-                                | OpenFailed msg -> $"Failed to open port: {msg}"
-                                | SendFailed msg -> $"Send failed: {msg}"
-                                | Disconnected -> "Port disconnected"
-                            addToast errorMsg true
-                    } |> Async.StartImmediate
-                    
-                | _ -> ()
-            
-            /// Send command over serial port
-            let sendCommand cmd =
-                match serialPortRef.Current with
-                | Some port ->
-                    async {
-                        let! result = sendAsync port cmd
-                        match result with
-                        | Ok () ->
-                            addToast $"Sent: {cmd}" false
-                        | Error error ->
-                            let errorMsg =
-                                match error with
-                                | SendFailed msg -> $"Send failed: {msg}"
-                                | Disconnected -> "Port is disconnected"
-                                | _ -> "Unknown error"
-                            addToast errorMsg true
-                            connectionState.Set ConnectionState.Disconnected
-                    } |> Async.StartImmediate
-                | None -> ()
-            
-            // TabControl with Serial Port and API Explorer tabs
+
+            // Polling + loco detection timers
+            ctx.useEffect(
+                handler = (fun _ ->
+                    let timer = DispatcherTimer()
+                    timer.Interval <- TimeSpan.FromMilliseconds(500.0)
+                    timer.Tick.Add(fun _ ->
+                        if model.Current.IsPolling then dispatch ApiExplorer.PollingTick
+                    )
+                    timer.Start()
+
+                    let locoTimer = DispatcherTimer()
+                    locoTimer.Interval <- TimeSpan.FromSeconds(5.0)
+                    locoTimer.Tick.Add(fun _ ->
+                        if model.Current.ApiConfig.IsSome then dispatch ApiExplorer.DetectLoco
+                    )
+                    locoTimer.Start()
+
+                    { new IDisposable with
+                        member _.Dispose() = timer.Stop(); locoTimer.Stop() }
+                ),
+                triggers = [ EffectTrigger.AfterInit ]
+            )
+
             TabControl.create [
+                TabControl.selectedIndex model.Current.ActiveTab
+                TabControl.onSelectedIndexChanged (fun idx -> dispatch (ApiExplorer.SetActiveTab idx))
                 TabControl.tabStripPlacement Dock.Top
                 TabControl.viewItems [
-                    // Serial Port Tab
                     TabItem.create [
                         TabItem.header "Serial Port"
-                        TabItem.content (
-                            mainLayout
-                                serialPorts.Current
-                                connectionState.Current
-                                isConnecting.Current
-                                toasts.Current
-                                (fun port -> selectedPort.Set port)
-                                toggleConnection
-                                (fun () -> sendCommand "s")
-                                (fun () -> sendCommand "c")
-                                dismissToast
-                        )
+                        TabItem.content (ApiExplorer.serialPortTabView model.Current dispatch)
                     ]
-                    
-                    // API Explorer Tab
                     TabItem.create [
                         TabItem.header "API Explorer"
-                        TabItem.content (
-                            ApiExplorer.view ()
-                        )
+                        TabItem.content (ApiExplorer.apiExplorerTabView model.Current dispatch)
                     ]
                 ]
             ]

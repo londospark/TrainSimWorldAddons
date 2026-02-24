@@ -42,7 +42,15 @@ module ApiExplorer =
     // ─── Model ───
 
     type Model =
-        { BaseUrl: string
+        { // Tab state
+          ActiveTab: int
+          // Serial port tab
+          SerialPorts: string list
+          SerialConnectionState: ConnectionState
+          SerialIsConnecting: bool
+          Toasts: Toast list
+          // API Explorer
+          BaseUrl: string
           CommKey: string
           ApiConfig: ApiConfig option
           ConnectionState: ApiConnectionState
@@ -56,6 +64,7 @@ module ApiExplorer =
           BindingsConfig: BindingsConfig
           PollingValues: Map<string, string>
           IsPolling: bool
+          // Shared serial port
           SerialPort: IO.Ports.SerialPort option
           SerialPortName: string option }
 
@@ -92,17 +101,31 @@ module ApiExplorer =
         | PollingTick
         | PollValueReceived of endpointKey: string * value: string
         | PollError of string
-        // Serial
+        // Serial (API Explorer internal)
         | SetSerialPort of string option
         | ConnectSerial
         | DisconnectSerial
         | SerialConnected of IO.Ports.SerialPort
         | SerialError of string
+        // Tab
+        | SetActiveTab of int
+        // Serial tab (unified)
+        | PortsUpdated of string list
+        | ToggleSerialConnection
+        | SerialConnectResult of Result<IO.Ports.SerialPort, SerialError>
+        | AddToast of message: string * isError: bool
+        | DismissToast of Guid
+        | SendSerialCommand of string
 
     // ─── Init ───
 
     let init () =
-        { BaseUrl = "http://localhost:31270"
+        { ActiveTab = 0
+          SerialPorts = []
+          SerialConnectionState = ConnectionState.Disconnected
+          SerialIsConnecting = false
+          Toasts = []
+          BaseUrl = "http://localhost:31270"
           CommKey = ""
           ApiConfig = None
           ConnectionState = ApiConnectionState.Disconnected
@@ -323,13 +346,12 @@ module ApiExplorer =
             Cmd.none
 
         | Disconnect ->
-            SerialPortModule.disconnect model.SerialPort
             { model with
                 ApiConfig = None; ConnectionState = ApiConnectionState.Disconnected
                 TreeRoot = []; SelectedNode = None
                 EndpointValues = Map.empty; LastResponseTime = None
                 CurrentLoco = None; IsPolling = false
-                PollingValues = Map.empty; SerialPort = None },
+                PollingValues = Map.empty },
             Cmd.none
 
         | RootNodesLoaded (nodes, elapsed) ->
@@ -386,7 +408,9 @@ module ApiExplorer =
                 let newConfig = BindingPersistence.addBinding model.BindingsConfig locoName binding
                 BindingPersistence.save newConfig
                 let newModel = { model with BindingsConfig = newConfig; IsPolling = true }
-                newModel, Cmd.none
+                match model.ApiConfig with
+                | Some config -> newModel, pollEndpointsCmd config [binding]
+                | None -> newModel, Cmd.none
             | None -> model, Cmd.none
 
         | UnbindEndpoint (nodePath, endpointName) ->
@@ -432,10 +456,15 @@ module ApiExplorer =
             if changed then
                 match model.SerialPort with
                 | Some port when port.IsOpen ->
-                    async {
-                        let! _ = SerialPortModule.sendAsync port (sprintf "%s=%s" key value)
-                        ()
-                    } |> Async.Start
+                    let serialCmd =
+                        if value.Contains("1") then "s"
+                        elif value.Contains("0") then "c"
+                        else ""
+                    if serialCmd <> "" then
+                        async {
+                            let! _ = SerialPortModule.sendAsync port serialCmd
+                            ()
+                        } |> Async.Start
                 | _ -> ()
             newModel, Cmd.none
 
@@ -459,6 +488,83 @@ module ApiExplorer =
 
         | SerialError _ ->
             model, Cmd.none
+
+        | SetActiveTab idx ->
+            { model with ActiveTab = idx }, Cmd.none
+
+        | PortsUpdated ports ->
+            { model with SerialPorts = ports }, Cmd.none
+
+        | ToggleSerialConnection ->
+            match model.SerialConnectionState with
+            | ConnectionState.Connected _ ->
+                SerialPortModule.disconnect model.SerialPort
+                let toast: Toast = { Id = Guid.NewGuid(); Message = "Disconnected from port"; IsError = false; CreatedAt = DateTime.Now }
+                { model with
+                    SerialPort = None
+                    SerialConnectionState = ConnectionState.Disconnected
+                    SerialIsConnecting = false
+                    Toasts = model.Toasts @ [toast] }, Cmd.none
+            | _ ->
+                match model.SerialPortName with
+                | Some portName ->
+                    { model with SerialIsConnecting = true; SerialConnectionState = ConnectionState.Connecting },
+                    Cmd.OfAsync.either
+                        (fun () -> SerialPortModule.connectAsync portName 9600)
+                        ()
+                        (fun result -> SerialConnectResult result)
+                        (fun ex -> SerialConnectResult (Error (OpenFailed ex.Message)))
+                | None -> model, Cmd.none
+
+        | SerialConnectResult result ->
+            match result with
+            | Ok port ->
+                let portName = model.SerialPortName |> Option.defaultValue ""
+                let toast: Toast = { Id = Guid.NewGuid(); Message = sprintf "Connected to %s" portName; IsError = false; CreatedAt = DateTime.Now }
+                { model with
+                    SerialPort = Some port
+                    SerialConnectionState = ConnectionState.Connected portName
+                    SerialIsConnecting = false
+                    Toasts = model.Toasts @ [toast] }, Cmd.none
+            | Error error ->
+                let errorMsg =
+                    match error with
+                    | PortInUse p -> sprintf "Port %s is already in use" p
+                    | PortNotFound p -> sprintf "Port %s not found" p
+                    | OpenFailed msg -> sprintf "Failed to open port: %s" msg
+                    | SendFailed msg -> sprintf "Send failed: %s" msg
+                    | Disconnected -> "Port disconnected"
+                let toast: Toast = { Id = Guid.NewGuid(); Message = errorMsg; IsError = true; CreatedAt = DateTime.Now }
+                { model with
+                    SerialConnectionState = ConnectionState.Error error
+                    SerialIsConnecting = false
+                    Toasts = model.Toasts @ [toast] }, Cmd.none
+
+        | AddToast (message, isError) ->
+            let toast: Toast = { Id = Guid.NewGuid(); Message = message; IsError = isError; CreatedAt = DateTime.Now }
+            { model with Toasts = model.Toasts @ [toast] }, Cmd.none
+
+        | DismissToast id ->
+            { model with Toasts = model.Toasts |> List.filter (fun t -> t.Id <> id) }, Cmd.none
+
+        | SendSerialCommand cmd ->
+            match model.SerialPort with
+            | Some port when port.IsOpen ->
+                model, Cmd.OfAsync.either
+                    (fun () -> SerialPortModule.sendAsync port cmd)
+                    ()
+                    (fun result ->
+                        match result with
+                        | Ok () -> AddToast (sprintf "Sent: %s" cmd, false)
+                        | Error error ->
+                            let errorMsg =
+                                match error with
+                                | SendFailed msg -> sprintf "Send failed: %s" msg
+                                | Disconnected -> "Port is disconnected"
+                                | _ -> "Unknown error"
+                            AddToast (errorMsg, true))
+                    (fun ex -> AddToast (sprintf "Send error: %s" ex.Message, true))
+            | _ -> model, Cmd.none
 
     // ─── View ───
 
@@ -750,47 +856,6 @@ module ApiExplorer =
             )
         ]
 
-    let private serialPortPanel (model: Model) (dispatch: Dispatch<Msg>) =
-        StackPanel.create [
-            StackPanel.dock Dock.Top
-            StackPanel.orientation Orientation.Horizontal
-            StackPanel.margin (10.0, 5.0)
-            StackPanel.spacing 5.0
-            StackPanel.children [
-                TextBlock.create [
-                    TextBlock.text "Serial:"
-                    TextBlock.fontSize 11.0
-                    TextBlock.verticalAlignment VerticalAlignment.Center
-                ]
-                ComboBox.create [
-                    ComboBox.width 120.0
-                    ComboBox.placeholderText "COM port"
-                    ComboBox.dataItems (SerialPortModule.getAvailablePorts ())
-                    ComboBox.selectedItem (model.SerialPortName |> Option.defaultValue "")
-                    ComboBox.onSelectedItemChanged (fun item ->
-                        let name = string item
-                        if String.IsNullOrEmpty name then dispatch (SetSerialPort None)
-                        else dispatch (SetSerialPort (Some name))
-                    )
-                    ComboBox.fontSize 11.0
-                ]
-                Button.create [
-                    Button.content (
-                        match model.SerialPort with
-                        | Some p when p.IsOpen -> "Disconnect"
-                        | _ -> "Connect"
-                    )
-                    Button.onClick (fun _ ->
-                        match model.SerialPort with
-                        | Some p when p.IsOpen -> dispatch DisconnectSerial
-                        | _ -> dispatch ConnectSerial
-                    )
-                    Button.fontSize 10.0
-                    Button.padding (5.0, 2.0)
-                ]
-            ]
-        ]
-
     let private bindingsPanel (model: Model) (dispatch: Dispatch<Msg>) =
         let currentBindings =
             match model.CurrentLoco with
@@ -880,59 +945,27 @@ module ApiExplorer =
             )
         ]
 
-    // ─── Component host with MVU dispatch loop ───
+    // ─── Public tab views (called from Program.fs) ───
 
-    let view () =
-        Component(fun ctx ->
-            let model = ctx.useState (init ())
-
-            let rec dispatch (msg: Msg) =
-                Dispatcher.UIThread.Post(Action(fun () ->
-                    try
-                        let newModel, cmds = update msg model.Current
-                        model.Set newModel
-                        for sub in cmds do
-                            sub dispatch
-                    with ex ->
-                        eprintfn "[MVU] Update error for %A: %s" msg ex.Message
-                ))
-
-            // Polling timer (500ms)
-            ctx.useEffect(
-                handler = (fun _ ->
-                    let timer = DispatcherTimer()
-                    timer.Interval <- TimeSpan.FromMilliseconds(500.0)
-                    timer.Tick.Add(fun _ ->
-                        if model.Current.IsPolling then
-                            dispatch PollingTick
-                    )
-                    timer.Start()
-
-                    // Loco detection timer (5s)
-                    let locoTimer = DispatcherTimer()
-                    locoTimer.Interval <- TimeSpan.FromSeconds(5.0)
-                    locoTimer.Tick.Add(fun _ ->
-                        if model.Current.ApiConfig.IsSome then
-                            dispatch DetectLoco
-                    )
-                    locoTimer.Start()
-
-                    { new IDisposable with
-                        member _.Dispose() =
-                            timer.Stop()
-                            locoTimer.Stop() }
-                ),
-                triggers = [ EffectTrigger.AfterInit ]
-            )
-
-            DockPanel.create [
-                DockPanel.children [
-                    statusBar model.Current
-                    connectionPanel model.Current dispatch
-                    serialPortPanel model.Current dispatch
-                    bindingsPanel model.Current dispatch
-                    treeBrowserPanel model.Current dispatch
-                    endpointViewerPanel model.Current dispatch
-                ]
+    let apiExplorerTabView (model: Model) (dispatch: Dispatch<Msg>) =
+        DockPanel.create [
+            DockPanel.children [
+                statusBar model
+                connectionPanel model dispatch
+                bindingsPanel model dispatch
+                treeBrowserPanel model dispatch
+                endpointViewerPanel model dispatch
             ]
-        )
+        ]
+
+    let serialPortTabView (model: Model) (dispatch: Dispatch<Msg>) =
+        Components.mainLayout
+            model.SerialPorts
+            model.SerialConnectionState
+            model.SerialIsConnecting
+            model.Toasts
+            (fun port -> dispatch (SetSerialPort port))
+            (fun () -> dispatch ToggleSerialConnection)
+            (fun () -> dispatch (SendSerialCommand "s"))
+            (fun () -> dispatch (SendSerialCommand "c"))
+            (fun id -> dispatch (DismissToast id))
