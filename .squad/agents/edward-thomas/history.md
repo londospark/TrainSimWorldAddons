@@ -102,3 +102,36 @@ Wrote 12 new tests on branch `feature/elmish-sqlite` covering three migration ar
 **Results:** All 118 tests passed (106 original + 12 new).
 
 **Commit:** 4e70b9a on `feature/elmish-sqlite`
+
+### Elmish + SQLite Comprehensive Test Suite (2026-02-25)
+**Date:** 2026-02-25  
+**Task:** Write full test coverage for Elmish migration, SQLite persistence, polling behavior, and test isolation fixes
+
+**Test Categories:**
+
+**Pure in-memory binding mutations (6 tests):**
+- `addBinding adds to empty BindingsConfig` — loco created, binding added
+- `addBinding idempotent` — duplicate binding not added twice
+- `removeBinding removes specific endpoint` — targeted removal
+- `removeBinding no-op for missing` — no crash on non-existent binding
+- `BindingsConfig load/save roundtrip` — serialization fidelity
+- `SQLite auto-migration from JSON` — detects JSON, hydrates DB, deletes JSON
+
+**Polling integration (4 tests):**
+- `PollingTick queries all active bindings` — correct Cmd dispatches
+- `PollingValueReceived sends on change` — serial output only on value change
+- `PollingValueReceived value="1" maps to send "s"` — serial protocol mapping
+- `PollingValueReceived value="0" maps to send "c"` — serial protocol mapping
+
+**Loco lifecycle (3 tests):**
+- `LocoDetected different loco resets polling state` — PollingValues cleared
+- `LocoDetected different loco reloads bindings` — fresh config loaded from DB
+- `LocoDetected same loco preserves polling values` — idempotent behavior
+
+**Test Isolation Fixes (implemented by Coordinator):**
+- Discovered: `addBinding`/`removeBinding` were calling `BindingPersistence.load()` during tests → broke isolation
+- **Solution:** Made binding mutations pure in-memory, DB flush is explicit (`flushBindingsToDb`)
+- **Result:** 1 failing test (`UnbindEndpoint removes binding`) recovered
+- **Impact:** Test suite now stable, no cross-test contamination
+
+**Status:** ✅ In progress, targeting completion this batch (106+ tests passing)

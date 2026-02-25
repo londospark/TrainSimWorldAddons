@@ -29,3 +29,21 @@
 - **Namespace gotcha:** `open Elmish` inside the `CounterApp` namespace triggers FS0893 because F# partially matches it to `Avalonia.FuncUI.Elmish`. Fix: use `open global.Elmish`.
 - **Polling timers:** Endpoint value polling at 200ms, loco detection at 1s. Timers remain as `DispatcherTimer` in `ctx.useEffect` (AfterInit) since `useElmish` doesn't expose Elmish subscriptions directly.
 - **Loco change handling:** `LocoDetected` now detects when loco changes (vs same loco repeating), reloads bindings from DB, clears stale `PollingValues`, and auto-starts polling if the new loco has bindings.
+
+### Elmish + SQLite Integration (2026-02-25)
+**Date:** 2026-02-25  
+**Task:** Migrate MVU from hand-rolled to Elmish, integrate SQLite persistence, fix polling timers and loco detection
+
+**Key Changes:**
+- **Elmish adoption:** Removed ~50 lines of hand-rolled dispatch infrastructure, integrated `Avalonia.FuncUI.Elmish.ElmishHook`
+- **Polling intervals:** Reduced from 500ms → 200ms (values), 5s → 1s (loco) for better responsiveness
+- **Loco change detection:** Now properly distinguishes "loco changed" from "same loco repeated" — clears stale polling values and reloads bindings on change
+- **Config reload:** When loco changes, `LocoDetected` calls `BindingPersistence.load()` to get fresh bindings for that loco
+- **Auto-start polling:** If new loco has bindings, polling starts immediately; if no bindings, polling stops
+
+**Test Integration:**
+- 106 tests passing (103 original + 3 new loco-change tests)
+- Edward Thomas writing 12 additional tests for Elmish/SQLite/polling edge cases
+- Coordinator fixed test isolation (binding mutations now pure in-memory)
+
+**Status:** ✅ Completed & tested

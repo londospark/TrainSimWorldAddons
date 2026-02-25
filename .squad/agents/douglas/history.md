@@ -48,3 +48,15 @@
 - Event-driven model (push only on value change, not periodic)
 - Support mixed mode (polling + push in same client)
 - Stateless connections (no server-side session persistence)
+
+### Team Role Update (2026-02-25)
+**Date:** 2026-02-25
+**Promotion:** Hired as **Technical Writer (📝)** for the squad
+
+**New Responsibilities:**
+- Document architectural decisions and proposals
+- Write user-facing and community-facing documentation
+- Research best practices and competitive approaches
+- Synthesize team findings into actionable recommendations
+
+**Current Assignment:** Continue supporting API design documentation and community engagement
