@@ -311,6 +311,20 @@ let ``LocoDetected sets CurrentLoco`` () =
     Assert.Equal(Some "RVM_Class350_ABC", newModel.CurrentLoco)
 
 [<Fact>]
+let ``LocoDetected same loco is no-op`` () =
+    let model = { connectedModel () with CurrentLoco = Some "SameLoco"; PollingValues = Map.ofList [("k", "v")] }
+    let newModel, _ = update (LocoDetected "SameLoco") model
+    Assert.Equal(Some "SameLoco", newModel.CurrentLoco)
+    Assert.Equal(Some "v", Map.tryFind "k" newModel.PollingValues)
+
+[<Fact>]
+let ``LocoDetected different loco clears PollingValues`` () =
+    let model = { connectedModel () with CurrentLoco = Some "OldLoco"; PollingValues = Map.ofList [("k", "v")]; IsPolling = true }
+    let newModel, _ = update (LocoDetected "NewLoco") model
+    Assert.Equal(Some "NewLoco", newModel.CurrentLoco)
+    Assert.True(newModel.PollingValues.IsEmpty)
+
+[<Fact>]
 let ``LocoDetectError does not change model`` () =
     let model = connectedModel ()
     let newModel, _ = update (LocoDetectError "some error") model

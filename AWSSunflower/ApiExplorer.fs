@@ -11,29 +11,9 @@ open Avalonia.Media
 open Avalonia.Threading
 open TSWApi
 open TSWApi.Types
+open global.Elmish
 
 module ApiExplorer =
-
-    // ─── Minimal Elmish infrastructure ───
-
-    type Dispatch<'msg> = 'msg -> unit
-    type Sub<'msg> = Dispatch<'msg> -> unit
-    type Cmd<'msg> = Sub<'msg> list
-
-    module Cmd =
-        let none : Cmd<'msg> = []
-        let batch (cmds: Cmd<'msg> list) : Cmd<'msg> = List.concat cmds
-
-        module OfAsync =
-            let either (task: 'a -> Async<'b>) (arg: 'a) (ofSuccess: 'b -> 'msg) (ofError: exn -> 'msg) : Cmd<'msg> =
-                [ fun dispatch ->
-                    async {
-                        try
-                            let! result = task arg
-                            dispatch (ofSuccess result)
-                        with ex ->
-                            dispatch (ofError ex)
-                    } |> Async.Start ]
 
     // ─── Shared HttpClient ───
 
@@ -427,7 +407,20 @@ module ApiExplorer =
             | None -> model, Cmd.none
 
         | LocoDetected locoName ->
-            { model with CurrentLoco = Some locoName }, Cmd.none
+            if model.CurrentLoco = Some locoName then
+                model, Cmd.none
+            else
+                let newConfig = BindingPersistence.load ()
+                let hasBindings =
+                    newConfig.Locos
+                    |> List.tryFind (fun l -> l.LocoName = locoName)
+                    |> Option.map (fun l -> l.BoundEndpoints.Length > 0)
+                    |> Option.defaultValue false
+                { model with
+                    CurrentLoco = Some locoName
+                    BindingsConfig = newConfig
+                    PollingValues = Map.empty
+                    IsPolling = hasBindings }, Cmd.none
 
         | LocoDetectError _ ->
             model, Cmd.none
