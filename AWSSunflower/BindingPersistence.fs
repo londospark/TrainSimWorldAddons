@@ -165,65 +165,25 @@ module BindingPersistence =
             eprintfn "[Persistence] Failed to save: %s" ex.Message
 
     let addBinding (config: BindingsConfig) (locoName: string) (binding: BoundEndpoint) : BindingsConfig =
-        try
-            ensureInitialized()
-            use conn = openConnection()
-            use tx = conn.BeginTransaction()
-
-            // Ensure loco exists
-            use insertLoco = conn.CreateCommand()
-            insertLoco.CommandText <- "INSERT OR IGNORE INTO Locos (loco_name) VALUES (@name);"
-            insertLoco.Parameters.AddWithValue("@name", locoName) |> ignore
-            insertLoco.ExecuteNonQuery() |> ignore
-
-            use getLocoId = conn.CreateCommand()
-            getLocoId.CommandText <- "SELECT id FROM Locos WHERE loco_name = @name;"
-            getLocoId.Parameters.AddWithValue("@name", locoName) |> ignore
-            let locoId = getLocoId.ExecuteScalar() :?> int64
-
-            // Check for duplicate
-            use checkDup = conn.CreateCommand()
-            checkDup.CommandText <- """
-                SELECT COUNT(*) FROM BoundEndpoints
-                WHERE loco_id = @locoId AND node_path = @nodePath AND endpoint_name = @endpointName;
-            """
-            checkDup.Parameters.AddWithValue("@locoId", locoId) |> ignore
-            checkDup.Parameters.AddWithValue("@nodePath", binding.NodePath) |> ignore
-            checkDup.Parameters.AddWithValue("@endpointName", binding.EndpointName) |> ignore
-            let count = checkDup.ExecuteScalar() :?> int64
-
-            if count = 0L then
-                use insertEp = conn.CreateCommand()
-                insertEp.CommandText <- """
-                    INSERT INTO BoundEndpoints (loco_id, node_path, endpoint_name, label)
-                    VALUES (@locoId, @nodePath, @endpointName, @label);
-                """
-                insertEp.Parameters.AddWithValue("@locoId", locoId) |> ignore
-                insertEp.Parameters.AddWithValue("@nodePath", binding.NodePath) |> ignore
-                insertEp.Parameters.AddWithValue("@endpointName", binding.EndpointName) |> ignore
-                insertEp.Parameters.AddWithValue("@label", binding.Label) |> ignore
-                insertEp.ExecuteNonQuery() |> ignore
-
-            tx.Commit()
-            readAllFromDb conn
-        with _ ->
-            config
+        let updatedLocos =
+            match config.Locos |> List.tryFind (fun l -> l.LocoName = locoName) with
+            | Some loco ->
+                let alreadyBound =
+                    loco.BoundEndpoints
+                    |> List.exists (fun e -> e.NodePath = binding.NodePath && e.EndpointName = binding.EndpointName)
+                if alreadyBound then config.Locos
+                else
+                    config.Locos |> List.map (fun l ->
+                        if l.LocoName = locoName then { l with BoundEndpoints = l.BoundEndpoints @ [binding] }
+                        else l)
+            | None ->
+                config.Locos @ [{ LocoName = locoName; BoundEndpoints = [binding] }]
+        { config with Locos = updatedLocos }
 
     let removeBinding (config: BindingsConfig) (locoName: string) (nodePath: string) (endpointName: string) : BindingsConfig =
-        try
-            ensureInitialized()
-            use conn = openConnection()
-            use cmd = conn.CreateCommand()
-            cmd.CommandText <- """
-                DELETE FROM BoundEndpoints
-                WHERE loco_id = (SELECT id FROM Locos WHERE loco_name = @locoName)
-                  AND node_path = @nodePath
-                  AND endpoint_name = @endpointName;
-            """
-            cmd.Parameters.AddWithValue("@locoName", locoName) |> ignore
-            cmd.Parameters.AddWithValue("@nodePath", nodePath) |> ignore
-            cmd.Parameters.AddWithValue("@endpointName", endpointName) |> ignore
-            cmd.ExecuteNonQuery() |> ignore
-            readAllFromDb conn
-        with _ ->
-            config
+        let updatedLocos =
+            config.Locos |> List.map (fun l ->
+                if l.LocoName = locoName then
+                    { l with BoundEndpoints = l.BoundEndpoints |> List.filter (fun e -> not (e.NodePath = nodePath && e.EndpointName = endpointName)) }
+                else l)
+        { config with Locos = updatedLocos }
