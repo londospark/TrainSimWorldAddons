@@ -13,4 +13,5 @@
 | F# implementation (general) | Dolgoch + Sir Haydn |
 | Library project setup, .fsproj, solution changes | Dolgoch |
 | Avalonia UI, FuncUI components, tabs, desktop app layout | Tom Rolt |
+| Documentation, proposals, technical writing, forum posts, research | Douglas |
 | Multi-domain / "team" request | Talyllyn + relevant agents |

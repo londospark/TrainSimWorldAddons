@@ -21,3 +21,7 @@
 - Three async functions in ApiExplorer.fs need this pattern: `connect()`, `expandNode()`, `getEndpointValue()`.
 - **Null-guard API responses:** `GetResponse.Values` (Dictionary<string, obj>) can be null when deserialized — always null-check before iterating with `Seq.map`.
 - **ScrollViewer in StackPanel won't scroll:** StackPanel gives children infinite height. Use DockPanel with the fixed-size element docked to Top and ScrollViewer filling remaining space.
+- **Unified MVU architecture:** All state (serial tab + API explorer) lives in one `ApiExplorer.Model` with one `Msg` union and one `update` function. Program.fs hosts the single `Component` with `ctx.useState`, dispatch loop, and all effects (port polling, toast dismiss, polling/loco timers). This prevents state loss on tab switch — the top-level Component is never destroyed.
+- **Shared serial port:** The `SerialPort` field on Model is shared between serial tab and API explorer polling. API `Disconnect` does NOT disconnect serial. Serial tab uses `ToggleSerialConnection`/`SerialConnectResult` messages; API explorer's internal `ConnectSerial`/`DisconnectSerial` remain for backward compatibility.
+- **Serial value mapping:** `PollValueReceived` maps values containing "1" → send "s" (set sunflower), "0" → send "c" (clear sunflower). No longer sends `key=value` format.
+- **Immediate bind poll:** `BindEndpoint` issues `pollEndpointsCmd` for the newly bound endpoint immediately, rather than waiting for the next `PollingTick`.

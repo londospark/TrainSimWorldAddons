@@ -18,4 +18,5 @@
 | Edward Thomas | Tester | Unit tests, integration tests, edge cases | 🧪 |
 | Tom Rolt | UI Dev | Avalonia FuncUI, tabs, API explorer UI | 🎨 |
 | Scribe | Session Logger | Memory, decisions, session logs | 📋 |
+| Douglas | Technical Writer | Documentation, proposals, forum posts, research | 📝 |
 | Ralph | Work Monitor | Work queue, backlog, keep-alive | 🔄 |
