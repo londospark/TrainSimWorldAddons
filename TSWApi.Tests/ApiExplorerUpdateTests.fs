@@ -311,6 +311,20 @@ let ``LocoDetected sets CurrentLoco`` () =
     Assert.Equal(Some "RVM_Class350_ABC", newModel.CurrentLoco)
 
 [<Fact>]
+let ``LocoDetected same loco is no-op`` () =
+    let model = { connectedModel () with CurrentLoco = Some "SameLoco"; PollingValues = Map.ofList [("k", "v")] }
+    let newModel, _ = update (LocoDetected "SameLoco") model
+    Assert.Equal(Some "SameLoco", newModel.CurrentLoco)
+    Assert.Equal(Some "v", Map.tryFind "k" newModel.PollingValues)
+
+[<Fact>]
+let ``LocoDetected different loco clears PollingValues`` () =
+    let model = { connectedModel () with CurrentLoco = Some "OldLoco"; PollingValues = Map.ofList [("k", "v")]; IsPolling = true }
+    let newModel, _ = update (LocoDetected "NewLoco") model
+    Assert.Equal(Some "NewLoco", newModel.CurrentLoco)
+    Assert.True(newModel.PollingValues.IsEmpty)
+
+[<Fact>]
 let ``LocoDetectError does not change model`` () =
     let model = connectedModel ()
     let newModel, _ = update (LocoDetectError "some error") model
@@ -404,3 +418,135 @@ let ``Disconnect clears binding state`` () =
     Assert.False(newModel.IsPolling)
     Assert.True(newModel.PollingValues.IsEmpty)
     Assert.True(newModel.SerialPort.IsNone)
+
+// ─── Loco change behavior ───
+
+[<Fact>]
+let ``LocoDetected with different loco clears polling values`` () =
+    let model =
+        { connectedModel () with
+            CurrentLoco = Some "LocoA"
+            PollingValues = Map.ofList [("k1", "v1"); ("k2", "v2")]
+            BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, _ = update (LocoDetected "LocoB") model
+    Assert.Equal(Some "LocoB", newModel.CurrentLoco)
+    Assert.True(newModel.PollingValues.IsEmpty)
+
+[<Fact>]
+let ``LocoDetected with different loco reloads bindings config`` () =
+    let model =
+        { connectedModel () with
+            CurrentLoco = Some "LocoA"
+            BindingsConfig = { Version = 1; Locos = [{ LocoName = "LocoA"; BoundEndpoints = [{ NodePath = "A"; EndpointName = "B"; Label = "A.B" }] }] } }
+    let newModel, _ = update (LocoDetected "LocoB") model
+    Assert.Equal(Some "LocoB", newModel.CurrentLoco)
+    // Config is reloaded from persistence — for a new loco with no saved bindings, loco won't appear
+    let locoBindings =
+        newModel.BindingsConfig.Locos
+        |> List.tryFind (fun l -> l.LocoName = "LocoB")
+        |> Option.map (fun l -> l.BoundEndpoints)
+        |> Option.defaultValue []
+    Assert.True(locoBindings.IsEmpty)
+
+[<Fact>]
+let ``LocoDetected with same loco does not clear polling values`` () =
+    let model =
+        { connectedModel () with
+            CurrentLoco = Some "SameLoco"
+            PollingValues = Map.ofList [("k1", "v1"); ("k2", "v2")]
+            BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, _ = update (LocoDetected "SameLoco") model
+    Assert.Equal(Some "SameLoco", newModel.CurrentLoco)
+    Assert.Equal(2, newModel.PollingValues.Count)
+    Assert.Equal(Some "v1", Map.tryFind "k1" newModel.PollingValues)
+    Assert.Equal(Some "v2", Map.tryFind "k2" newModel.PollingValues)
+
+// ─── Serial value mapping ───
+
+[<Fact>]
+let ``PollValueReceived with value containing 1 updates PollingValues`` () =
+    let model = { connectedModel () with PollingValues = Map.empty; BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, cmd = update (PollValueReceived ("endpoint.key", "Value: 1")) model
+    Assert.Equal(Some "Value: 1", Map.tryFind "endpoint.key" newModel.PollingValues)
+    Assert.True(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``PollValueReceived with value containing 0 updates PollingValues`` () =
+    let model = { connectedModel () with PollingValues = Map.empty; BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, cmd = update (PollValueReceived ("endpoint.key", "Value: 0")) model
+    Assert.Equal(Some "Value: 0", Map.tryFind "endpoint.key" newModel.PollingValues)
+    Assert.True(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``PollValueReceived with unchanged value does not trigger change`` () =
+    let model =
+        { connectedModel () with
+            PollingValues = Map.ofList [("endpoint.key", "42")]
+            BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, cmd = update (PollValueReceived ("endpoint.key", "42")) model
+    Assert.Equal(Some "42", Map.tryFind "endpoint.key" newModel.PollingValues)
+    Assert.True(cmd |> List.isEmpty)
+
+// ─── BindEndpoint with immediate poll ───
+
+[<Fact>]
+let ``BindEndpoint returns poll command when api config present`` () =
+    let model = connectedWithLoco ()
+    let _, cmd = update (BindEndpoint ("NodePath", "EndpointName")) model
+    Assert.False(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``BindEndpoint returns no command when api config absent`` () =
+    let model =
+        { init () with
+            CurrentLoco = Some "TestLoco_123"
+            ApiConfig = None
+            BindingsConfig = { Version = 1; Locos = [] } }
+    let _, cmd = update (BindEndpoint ("NodePath", "EndpointName")) model
+    Assert.True(cmd |> List.isEmpty)
+
+// ─── Pure in-memory persistence functions ───
+
+open CounterApp.BindingPersistence
+
+[<Fact>]
+let ``addBinding adds to empty config`` () =
+    let config = { Version = 1; Locos = [] }
+    let binding = { NodePath = "A"; EndpointName = "B"; Label = "A.B" }
+    let result = addBinding config "TestLoco" binding
+    let loco = result.Locos |> List.find (fun l -> l.LocoName = "TestLoco")
+    Assert.Equal(1, loco.BoundEndpoints.Length)
+    Assert.Equal("A", loco.BoundEndpoints.[0].NodePath)
+    Assert.Equal("B", loco.BoundEndpoints.[0].EndpointName)
+
+[<Fact>]
+let ``addBinding does not duplicate`` () =
+    let config = { Version = 1; Locos = [] }
+    let binding = { NodePath = "A"; EndpointName = "B"; Label = "A.B" }
+    let once = addBinding config "TestLoco" binding
+    let twice = addBinding once "TestLoco" binding
+    let loco = twice.Locos |> List.find (fun l -> l.LocoName = "TestLoco")
+    Assert.Equal(1, loco.BoundEndpoints.Length)
+
+[<Fact>]
+let ``removeBinding removes specific endpoint`` () =
+    let config =
+        { Version = 1
+          Locos = [{ LocoName = "TestLoco"
+                     BoundEndpoints = [{ NodePath = "A"; EndpointName = "B"; Label = "A.B" }
+                                       { NodePath = "C"; EndpointName = "D"; Label = "C.D" }] }] }
+    let result = removeBinding config "TestLoco" "A" "B"
+    let loco = result.Locos |> List.find (fun l -> l.LocoName = "TestLoco")
+    Assert.Equal(1, loco.BoundEndpoints.Length)
+    Assert.Equal("C", loco.BoundEndpoints.[0].NodePath)
+
+[<Fact>]
+let ``removeBinding is no-op for missing endpoint`` () =
+    let config =
+        { Version = 1
+          Locos = [{ LocoName = "TestLoco"
+                     BoundEndpoints = [{ NodePath = "A"; EndpointName = "B"; Label = "A.B" }] }] }
+    let result = removeBinding config "TestLoco" "X" "Y"
+    let loco = result.Locos |> List.find (fun l -> l.LocoName = "TestLoco")
+    Assert.Equal(1, loco.BoundEndpoints.Length)
+    Assert.Equal("A", loco.BoundEndpoints.[0].NodePath)

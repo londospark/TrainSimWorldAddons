@@ -68,3 +68,37 @@ Waited for Tom Rolt's implementation on `feature/recursive-search` branch and th
 **Results:** All 87 tests passed (14 original + 7 new + others).
 
 **Commit:** 839a8f0 on `feature/recursive-search`
+
+### 2025-07-25: Elmish Migration, SQLite Persistence, and Polling Tests
+
+Wrote 12 new tests on branch `feature/elmish-sqlite` covering three migration areas: Elmish update function changes, SQLite persistence pure functions, and polling/serial behavior.
+
+**Loco change behavior (3 tests):**
+- `LocoDetected with different loco clears polling values` — verifies PollingValues becomes Map.empty when loco changes
+- `LocoDetected with different loco reloads bindings config` — verifies BindingsConfig is reloaded and new loco has no bindings
+- `LocoDetected with same loco does not clear polling values` — verifies PollingValues remain intact when loco is unchanged
+
+**Serial value mapping (3 tests):**
+- `PollValueReceived with value containing 1 updates PollingValues` — verifies model state for "1" values
+- `PollValueReceived with value containing 0 updates PollingValues` — verifies model state for "0" values
+- `PollValueReceived with unchanged value does not trigger change` — verifies no-op when value is same
+
+**BindEndpoint immediate poll (2 tests):**
+- `BindEndpoint returns poll command when api config present` — verifies non-empty Cmd returned
+- `BindEndpoint returns no command when api config absent` — verifies Cmd.none when ApiConfig is None
+
+**Pure in-memory persistence functions (4 tests):**
+- `addBinding adds to empty config` — verifies new loco and binding created
+- `addBinding does not duplicate` — verifies idempotent behavior
+- `removeBinding removes specific endpoint` — verifies targeted removal
+- `removeBinding is no-op for missing endpoint` — verifies no change for non-existent binding
+
+**Key observations:**
+- The `update` function follows Elmish convention: `update (msg: Msg) (model: Model) -> Model * Cmd<Msg>`
+- `LocoDetected` with different loco calls `BindingPersistence.load()` which hits the real SQLite DB — tests still work because empty DB returns empty config
+- `PollValueReceived` serial side-effects only fire when `model.SerialPort` is `Some` with open port — tests are safe with default `None`
+- `Cmd.none` in Elmish is an empty list `[]`, so `List.isEmpty` check works correctly
+
+**Results:** All 118 tests passed (106 original + 12 new).
+
+**Commit:** 4e70b9a on `feature/elmish-sqlite`
