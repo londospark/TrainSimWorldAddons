@@ -522,6 +522,77 @@ Make binding mutations **pure in-memory** operations:
 
 ---
 
+## 8. Port Polling Initialization After Elmish Migration
+
+**Date:** 2025-05-XX  
+**Author:** Tom Rolt (UI Dev)  
+**Status:** Implemented  
+**Branch:** develop  
+
+### Context
+
+After the Elmish migration, COM ports were no longer being detected in the UI. The `SerialPorts` field in the model remained empty `[]` even when ports were available on the system.
+
+### Root Cause
+
+In `AWSSunflower/SerialPort.fs`, the `startPortPolling` function had two issues:
+
+1. **Synchronous dispatch during initialization:** It called `onUpdate lastPorts` immediately during the `useEffect` handler. With Elmish, `onUpdate` became `dispatch (PortsUpdated ports)`, but dispatching during `useEffect` initialization is unreliable — the Elmish loop may not be ready to process the message.
+
+2. **No initial change detection:** `lastPorts` was initialized to `getAvailablePorts()`, so if ports didn't change on first check, the timer callback would never fire (it only calls `onUpdate` when `currentPorts <> lastPorts`).
+
+### Solution
+
+Changed initialization in `startPortPolling`:
+- Initialize `lastPorts` to empty list `[]` instead of `getAvailablePorts()`
+- Removed the synchronous `onUpdate lastPorts` call
+
+Now the first timer tick (~1 second after initialization) detects the change from `[]` to actual ports and dispatches through the Elmish loop correctly.
+
+### Testing
+
+- ✅ Build succeeded: `dotnet build AWSSunflower/AWSSunflower.fsproj`
+- ✅ All 118 tests passed: `dotnet test TSWApi.Tests/TSWApi.Tests.fsproj`
+
+### Impact
+
+Minimal change (2 lines) that restores port detection functionality with the Elmish architecture.
+
+---
+
+## 9. Single-Screen Layout Redesign
+
+**Date:** 2026-02-25  
+**Author:** Tom Rolt (UI Dev)  
+**Status:** Implemented  
+**Branch:** develop
+
+### Decision
+
+Merged the two-tab layout (Serial Port + API Explorer) into a single unified screen. The serial port controls are now a compact 200px panel docked on the right side of the window. The toast notification system has been removed entirely.
+
+### Rationale
+
+- Two tabs forced users to switch back and forth — serial port and API explorer are used together during operation
+- Single-screen gives immediate visibility of serial connection status while browsing the API tree
+- Toast notifications added visual noise without clear value — status is now shown inline via a colored dot indicator
+
+### Key Design Choices
+
+- **DockPanel layout order:** Right (serial) → Bottom (status) → Bottom (bindings) → Top (connection) → Left (tree) → Center (endpoint viewer)
+- **Serial panel width:** 200px fixed — enough for controls without wasting space
+- **Status indicator:** Colored dot (●) with short text instead of 36px bold display
+- **SendSerialCommand:** Simplified to fire-and-forget (`Async.Start`) since toast feedback was removed
+- **Components.fs:** `errorToast` and `mainLayout` functions are now unused but left in place (no breaking change)
+
+### Impact
+
+- No API/update logic changes — purely view reorganization
+- All 127 tests pass unchanged
+- `Components.fs` individual functions (`portSelector`, `connectionButton`, `actionButtons`, `portDisplay`) still available for reuse if needed
+
+---
+
 ## Summary
 
 | # | Decision | Status | Impact |
@@ -533,8 +604,10 @@ Make binding mutations **pure in-memory** operations:
 | 5 | API response null-guards | ✅ Implemented | Prevents runtime crashes |
 | 6 | Unified MVU architecture | ✅ Implemented | State preserved across tab switches |
 | 7 | Test isolation (pure mutations) | ✅ Implemented | Fast, reliable unit tests |
+| 8 | Port polling initialization | ✅ Implemented | Restores port detection with Elmish |
+| 9 | Single-screen layout redesign | ✅ Implemented | Unified UX, no context switching |
 
 ---
 
-**Last Updated:** 2026-02-25T03:52Z  
+**Last Updated:** 2026-02-27T04:20Z  
 **Maintained By:** Scribe (Session Logger)
