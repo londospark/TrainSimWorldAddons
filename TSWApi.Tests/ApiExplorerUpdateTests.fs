@@ -5,6 +5,8 @@ open Xunit
 open CounterApp
 open CounterApp.ApiExplorer
 open TSWApi.Types
+open TSWApi.Subscription
+open CounterApp.CommandMapping
 
 // ─── Test helpers ───
 
@@ -280,7 +282,6 @@ let ``BindEndpoint adds binding when loco is known`` () =
     Assert.Equal(1, loco.BoundEndpoints.Length)
     Assert.Equal("CurrentDrivableActor/BP_AWS", loco.BoundEndpoints.[0].NodePath)
     Assert.Equal("Property.Sunflower", loco.BoundEndpoints.[0].EndpointName)
-    Assert.True(newModel.IsPolling)
 
 [<Fact>]
 let ``BindEndpoint does nothing when no loco detected`` () =
@@ -319,7 +320,7 @@ let ``LocoDetected same loco is no-op`` () =
 
 [<Fact>]
 let ``LocoDetected different loco clears PollingValues`` () =
-    let model = { connectedModel () with CurrentLoco = Some "OldLoco"; PollingValues = Map.ofList [("k", "v")]; IsPolling = true }
+    let model = { connectedModel () with CurrentLoco = Some "OldLoco"; PollingValues = Map.ofList [("k", "v")] }
     let newModel, _ = update (LocoDetected "NewLoco") model
     Assert.Equal(Some "NewLoco", newModel.CurrentLoco)
     Assert.True(newModel.PollingValues.IsEmpty)
@@ -330,48 +331,27 @@ let ``LocoDetectError does not change model`` () =
     let newModel, _ = update (LocoDetectError "some error") model
     Assert.True(newModel.CurrentLoco.IsNone)
 
-// ─── Polling ───
+// ─── EndpointChanged (replaces Polling) ───
 
 [<Fact>]
-let ``StartPolling sets IsPolling`` () =
+let ``EndpointChanged updates PollingValues`` () =
     let model = connectedModel ()
-    let newModel, _ = update StartPolling model
-    Assert.True(newModel.IsPolling)
+    let vc = { Address = { NodePath = "A"; EndpointName = "Property.AWS_SunflowerState" }; OldValue = None; NewValue = "1" }
+    let newModel, _ = update (EndpointChanged vc) model
+    Assert.Equal(Some "1", Map.tryFind "A.Property.AWS_SunflowerState" newModel.PollingValues)
 
 [<Fact>]
-let ``StopPolling clears IsPolling`` () =
-    let model = { connectedModel () with IsPolling = true }
-    let newModel, _ = update StopPolling model
-    Assert.False(newModel.IsPolling)
-
-[<Fact>]
-let ``PollValueReceived updates PollingValues`` () =
-    let model = connectedModel ()
-    let newModel, _ = update (PollValueReceived ("key1", "42")) model
-    Assert.Equal(Some "42", Map.tryFind "key1" newModel.PollingValues)
-
-[<Fact>]
-let ``PollingTick with no bindings produces no command`` () =
-    let model = { connectedWithLoco () with IsPolling = true }
-    let _, cmd = update PollingTick model
-    Assert.True(cmd |> List.isEmpty)
-
-[<Fact>]
-let ``PollingTick with bindings produces command`` () =
-    let model =
-        { connectedWithLoco () with
-            IsPolling = true
-            BindingsConfig =
-                { Version = 1
-                  Locos = [ { LocoName = "TestLoco_123"
-                              BoundEndpoints = [ { NodePath = "A"; EndpointName = "B"; Label = "A.B" } ] } ] } }
-    let _, cmd = update PollingTick model
+let ``EndpointChanged with mapped endpoint returns serial command`` () =
+    let model = { connectedModel () with ActiveAddon = Some AWSSunflowerCommands.commandSet }
+    let vc = { Address = { NodePath = "A"; EndpointName = "Property.AWS_SunflowerState" }; OldValue = None; NewValue = "1" }
+    let _, cmd = update (EndpointChanged vc) model
     Assert.False(cmd |> List.isEmpty)
 
 [<Fact>]
-let ``PollingTick without config produces no command`` () =
-    let model = { init () with CurrentLoco = Some "Loco"; IsPolling = true }
-    let _, cmd = update PollingTick model
+let ``EndpointChanged with unmapped endpoint returns no command`` () =
+    let model = { connectedModel () with ActiveAddon = Some AWSSunflowerCommands.commandSet }
+    let vc = { Address = { NodePath = "A"; EndpointName = "Property.Unknown" }; OldValue = None; NewValue = "1" }
+    let _, cmd = update (EndpointChanged vc) model
     Assert.True(cmd |> List.isEmpty)
 
 // ─── Serial ───
@@ -396,9 +376,8 @@ let ``init has no CurrentLoco`` () =
     Assert.True(model.CurrentLoco.IsNone)
 
 [<Fact>]
-let ``init has polling disabled`` () =
+let ``init has empty PollingValues`` () =
     let model = init ()
-    Assert.False(model.IsPolling)
     Assert.True(model.PollingValues.IsEmpty)
 
 [<Fact>]
@@ -411,11 +390,9 @@ let ``init has no serial port`` () =
 let ``Disconnect clears binding state`` () =
     let model =
         { connectedWithLoco () with
-            IsPolling = true
             PollingValues = Map.ofList [("a", "1")] }
     let newModel, _ = update Disconnect model
     Assert.True(newModel.CurrentLoco.IsNone)
-    Assert.False(newModel.IsPolling)
     Assert.True(newModel.PollingValues.IsEmpty)
     Assert.True(newModel.SerialPort.IsNone)
 
@@ -461,31 +438,31 @@ let ``LocoDetected with same loco does not clear polling values`` () =
     Assert.Equal(Some "v1", Map.tryFind "k1" newModel.PollingValues)
     Assert.Equal(Some "v2", Map.tryFind "k2" newModel.PollingValues)
 
-// ─── Serial value mapping ───
+// ─── EndpointChanged value tracking ───
 
 [<Fact>]
-let ``PollValueReceived with value containing 1 updates PollingValues`` () =
+let ``EndpointChanged with activate value updates PollingValues`` () =
     let model = { connectedModel () with PollingValues = Map.empty; BindingsConfig = { Version = 1; Locos = [] } }
-    let newModel, cmd = update (PollValueReceived ("endpoint.key", "Value: 1")) model
+    let vc = { Address = { NodePath = "endpoint"; EndpointName = "key" }; OldValue = None; NewValue = "Value: 1" }
+    let newModel, _ = update (EndpointChanged vc) model
     Assert.Equal(Some "Value: 1", Map.tryFind "endpoint.key" newModel.PollingValues)
-    Assert.True(cmd |> List.isEmpty)
 
 [<Fact>]
-let ``PollValueReceived with value containing 0 updates PollingValues`` () =
+let ``EndpointChanged with deactivate value updates PollingValues`` () =
     let model = { connectedModel () with PollingValues = Map.empty; BindingsConfig = { Version = 1; Locos = [] } }
-    let newModel, cmd = update (PollValueReceived ("endpoint.key", "Value: 0")) model
+    let vc = { Address = { NodePath = "endpoint"; EndpointName = "key" }; OldValue = None; NewValue = "Value: 0" }
+    let newModel, _ = update (EndpointChanged vc) model
     Assert.Equal(Some "Value: 0", Map.tryFind "endpoint.key" newModel.PollingValues)
-    Assert.True(cmd |> List.isEmpty)
 
 [<Fact>]
-let ``PollValueReceived with unchanged value does not trigger change`` () =
+let ``EndpointChanged always updates PollingValues`` () =
     let model =
         { connectedModel () with
             PollingValues = Map.ofList [("endpoint.key", "42")]
             BindingsConfig = { Version = 1; Locos = [] } }
-    let newModel, cmd = update (PollValueReceived ("endpoint.key", "42")) model
+    let vc = { Address = { NodePath = "endpoint"; EndpointName = "key" }; OldValue = Some "42"; NewValue = "42" }
+    let newModel, _ = update (EndpointChanged vc) model
     Assert.Equal(Some "42", Map.tryFind "endpoint.key" newModel.PollingValues)
-    Assert.True(cmd |> List.isEmpty)
 
 // ─── BindEndpoint with immediate poll ───
 

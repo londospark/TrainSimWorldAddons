@@ -7,20 +7,25 @@ open Avalonia.FuncUI.DSL
 open Avalonia.FuncUI.Types
 open Avalonia.Layout
 open Avalonia.Media
+open Avalonia.Threading
 open TSWApi
+open TSWApi.Subscription
+open CounterApp.CommandMapping
+open CounterApp.PortDetection
 open global.Elmish
 
 module ApiExplorer =
 
-    // ─── Shared HttpClient ───
+    // ─── Shared HttpClient & Subscription ───
 
     let private httpClient = new HttpClient()
+    let private currentSubscription : ISubscription option ref = ref None
 
     // ─── Model ───
 
     type Model =
         { // Serial port
-          SerialPorts: string list
+          DetectedPorts: DetectedPort list
           SerialConnectionState: ConnectionState
           SerialIsConnecting: bool
           // API Explorer
@@ -37,7 +42,8 @@ module ApiExplorer =
           CurrentLoco: string option
           BindingsConfig: BindingsConfig
           PollingValues: Map<string, string>
-          IsPolling: bool
+          // Command mapping
+          ActiveAddon: AddonCommandSet option
           // Shared serial port
           SerialPort: IO.Ports.SerialPort option
           SerialPortName: string option }
@@ -69,12 +75,8 @@ module ApiExplorer =
         | DetectLoco
         | LocoDetected of string
         | LocoDetectError of string
-        // Polling
-        | StartPolling
-        | StopPolling
-        | PollingTick
-        | PollValueReceived of endpointKey: string * value: string
-        | PollError of string
+        // Subscription-based polling
+        | EndpointChanged of ValueChange
         // Serial (API Explorer internal)
         | SetSerialPort of string option
         | ConnectSerial
@@ -82,7 +84,7 @@ module ApiExplorer =
         | SerialConnected of IO.Ports.SerialPort
         | SerialError of string
         // Serial tab (unified)
-        | PortsUpdated of string list
+        | PortsUpdated of DetectedPort list
         | ToggleSerialConnection
         | SerialConnectResult of Result<IO.Ports.SerialPort, SerialError>
         | SendSerialCommand of string
@@ -90,7 +92,7 @@ module ApiExplorer =
     // ─── Init ───
 
     let init () =
-        { SerialPorts = []
+        { DetectedPorts = []
           SerialConnectionState = ConnectionState.Disconnected
           SerialIsConnecting = false
           BaseUrl = "http://localhost:31270"
@@ -106,7 +108,7 @@ module ApiExplorer =
           CurrentLoco = None
           BindingsConfig = BindingPersistence.load ()
           PollingValues = Map.empty
-          IsPolling = false
+          ActiveAddon = Some AWSSunflowerCommands.commandSet
           SerialPort = None
           SerialPortName = None }
 
@@ -248,31 +250,24 @@ module ApiExplorer =
             LocoDetected
             (fun ex -> LocoDetectError ex.Message)
 
-    let private pollEndpointsCmd (config: ApiConfig) (endpoints: BoundEndpoint list) =
-        let cmds =
-            endpoints |> List.map (fun ep ->
-                Cmd.OfAsync.either
-                    (fun () ->
-                        async {
-                            let getPath = sprintf "%s.%s" ep.NodePath ep.EndpointName
-                            let! getResult = TSWApi.ApiClient.getValue httpClient config getPath
-                            match getResult with
-                            | Ok getResp ->
-                                let valueStr =
-                                    if isNull (getResp.Values :> obj) || getResp.Values.Count = 0 then
-                                        "(no value)"
-                                    else
-                                        getResp.Values
-                                        |> Seq.map (fun kvp -> sprintf "%O" kvp.Value)
-                                        |> String.concat ", "
-                                let key = sprintf "%s.%s" ep.NodePath ep.EndpointName
-                                return (key, valueStr)
-                            | Error err -> return failwithf "Poll failed: %A" err
-                        })
-                    ()
-                    PollValueReceived
-                    (fun ex -> PollError ex.Message))
-        Cmd.batch cmds
+    let private createSubscriptionCmd (config: ApiConfig) (bindings: BoundEndpoint list) =
+        Cmd.ofEffect (fun dispatch ->
+            currentSubscription.Value |> Option.iter (fun s -> s.Dispose())
+            let subConfig =
+                { TSWApi.Subscription.defaultConfig with
+                    Interval = TimeSpan.FromMilliseconds(200.0)
+                    OnChange = fun vc ->
+                        Dispatcher.UIThread.Post(fun () -> dispatch (EndpointChanged vc))
+                    OnError = fun _ _ -> () }
+            let sub = TSWApi.Subscription.create httpClient config subConfig
+            for b in bindings do
+                sub.Add { NodePath = b.NodePath; EndpointName = b.EndpointName }
+            currentSubscription.Value <- Some sub
+        )
+
+    let private disposeSubscription () =
+        currentSubscription.Value |> Option.iter (fun s -> s.Dispose())
+        currentSubscription.Value <- None
 
     let private connectSerialCmd (portName: string) =
         Cmd.OfAsync.either
@@ -326,11 +321,12 @@ module ApiExplorer =
             Cmd.none
 
         | Disconnect ->
+            disposeSubscription ()
             { model with
                 ApiConfig = None; ConnectionState = ApiConnectionState.Disconnected
                 TreeRoot = []; SelectedNode = None
                 EndpointValues = Map.empty; LastResponseTime = None
-                CurrentLoco = None; IsPolling = false
+                CurrentLoco = None
                 PollingValues = Map.empty },
             Cmd.none
 
@@ -387,9 +383,22 @@ module ApiExplorer =
                 let binding = { NodePath = nodePath; EndpointName = endpointName; Label = sprintf "%s.%s" nodePath endpointName }
                 let newConfig = BindingPersistence.addBinding model.BindingsConfig locoName binding
                 BindingPersistence.save newConfig
-                let newModel = { model with BindingsConfig = newConfig; IsPolling = true }
+                let newModel = { model with BindingsConfig = newConfig }
+                let addr = { NodePath = nodePath; EndpointName = endpointName }
                 match model.ApiConfig with
-                | Some config -> newModel, pollEndpointsCmd config [binding]
+                | Some config ->
+                    // Add to existing subscription or create new one
+                    match currentSubscription.Value with
+                    | Some sub ->
+                        sub.Add addr
+                        newModel, Cmd.none
+                    | None ->
+                        let allBindings =
+                            newConfig.Locos
+                            |> List.tryFind (fun l -> l.LocoName = locoName)
+                            |> Option.map (fun l -> l.BoundEndpoints)
+                            |> Option.defaultValue []
+                        newModel, createSubscriptionCmd config allBindings
                 | None -> newModel, Cmd.none
             | None -> model, Cmd.none
 
@@ -399,10 +408,20 @@ module ApiExplorer =
                 let newConfig = BindingPersistence.removeBinding model.BindingsConfig locoName nodePath endpointName
                 BindingPersistence.save newConfig
                 let key = sprintf "%s.%s" nodePath endpointName
+                let addr = { NodePath = nodePath; EndpointName = endpointName }
+                // Remove from subscription
+                currentSubscription.Value |> Option.iter (fun sub ->
+                    sub.Remove addr
+                    if sub.Endpoints.IsEmpty then disposeSubscription ())
+                let resetCmd =
+                    model.ActiveAddon
+                    |> Option.bind (fun addon -> CommandMapping.resetCommand addon |> Option.map CommandMapping.toWireString)
+                    |> Option.map (fun wire -> Cmd.ofMsg (SendSerialCommand wire))
+                    |> Option.defaultValue Cmd.none
                 { model with
                     BindingsConfig = newConfig
                     PollingValues = Map.remove key model.PollingValues },
-                Cmd.ofMsg (SendSerialCommand "c")
+                resetCmd
             | None -> model, Cmd.none
 
         | DetectLoco ->
@@ -414,17 +433,26 @@ module ApiExplorer =
             if model.CurrentLoco = Some locoName then
                 model, Cmd.none
             else
+                disposeSubscription ()
                 let newConfig = BindingPersistence.load ()
-                let hasBindings =
+                let locoBindings =
                     newConfig.Locos
                     |> List.tryFind (fun l -> l.LocoName = locoName)
-                    |> Option.map (fun l -> l.BoundEndpoints.Length > 0)
-                    |> Option.defaultValue false
+                    |> Option.map (fun l -> l.BoundEndpoints)
+                    |> Option.defaultValue []
+                let resetCmd =
+                    model.ActiveAddon
+                    |> Option.bind (fun addon -> CommandMapping.resetCommand addon |> Option.map CommandMapping.toWireString)
+                    |> Option.map (fun wire -> Cmd.ofMsg (SendSerialCommand wire))
+                    |> Option.defaultValue Cmd.none
+                let subCmd =
+                    match model.ApiConfig with
+                    | Some config when not locoBindings.IsEmpty -> createSubscriptionCmd config locoBindings
+                    | _ -> Cmd.none
                 { model with
                     CurrentLoco = Some locoName
                     BindingsConfig = newConfig
                     PollingValues = Map.empty
-                    IsPolling = hasBindings
                     TreeRoot = []
                     SelectedNode = None
                     EndpointValues = Map.empty },
@@ -432,50 +460,22 @@ module ApiExplorer =
                     match model.ApiConfig with
                     | Some config -> loadRootNodesCmd config
                     | None -> Cmd.none
-                    Cmd.ofMsg (SendSerialCommand "c")
+                    resetCmd
+                    subCmd
                 ]
 
         | LocoDetectError _ ->
             model, Cmd.none
 
-        | StartPolling ->
-            { model with IsPolling = true }, Cmd.none
-
-        | StopPolling ->
-            { model with IsPolling = false }, Cmd.none
-
-        | PollingTick ->
-            match model.ApiConfig, model.CurrentLoco with
-            | Some config, Some locoName ->
-                let locoBindings =
-                    model.BindingsConfig.Locos
-                    |> List.tryFind (fun l -> l.LocoName = locoName)
-                    |> Option.map (fun l -> l.BoundEndpoints)
-                    |> Option.defaultValue []
-                if locoBindings.IsEmpty then model, Cmd.none
-                else model, pollEndpointsCmd config locoBindings
-            | _ -> model, Cmd.none
-
-        | PollValueReceived (key, value) ->
-            let changed = Map.tryFind key model.PollingValues <> Some value
-            let newModel = { model with PollingValues = Map.add key value model.PollingValues }
-            if changed then
-                match model.SerialPort with
-                | Some port when port.IsOpen ->
-                    let serialCmd =
-                        if value.Contains("1") then "s"
-                        elif value.Contains("0") then "c"
-                        else ""
-                    if serialCmd <> "" then
-                        async {
-                            let! _ = SerialPortModule.sendAsync port serialCmd
-                            ()
-                        } |> Async.Start
-                | _ -> ()
-            newModel, Cmd.none
-
-        | PollError _ ->
-            model, Cmd.none
+        | EndpointChanged vc ->
+            let key = Subscription.endpointPath vc.Address
+            let newModel = { model with PollingValues = Map.add key vc.NewValue model.PollingValues }
+            let cmd =
+                model.ActiveAddon
+                |> Option.bind (fun addon -> CommandMapping.translate addon vc.Address.EndpointName vc.NewValue)
+                |> Option.map (fun serialCmd -> Cmd.ofMsg (SendSerialCommand (CommandMapping.toWireString serialCmd)))
+                |> Option.defaultValue Cmd.none
+            newModel, cmd
 
         | SetSerialPort portName ->
             { model with SerialPortName = portName }, Cmd.none
@@ -496,7 +496,12 @@ module ApiExplorer =
             model, Cmd.none
 
         | PortsUpdated ports ->
-            { model with SerialPorts = ports }, Cmd.none
+            let newModel = { model with DetectedPorts = ports }
+            // Auto-select Arduino if exactly one found
+            match classifyPorts ports with
+            | SingleArduino arduino when model.SerialPortName.IsNone ->
+                { newModel with SerialPortName = Some arduino.PortName }, Cmd.none
+            | _ -> newModel, Cmd.none
 
         | ToggleSerialConnection ->
             match model.SerialConnectionState with
@@ -862,15 +867,18 @@ module ApiExplorer =
                                     TextBlock.fontSize 12.0
                                     TextBlock.fontWeight FontWeight.Bold
                                 ]
-                                Button.create [
-                                    Button.content (if model.IsPolling then "⏸ Pause" else "▶ Poll")
-                                    Button.onClick (fun _ ->
-                                        if model.IsPolling then dispatch StopPolling
-                                        else dispatch StartPolling
+                                TextBlock.create [
+                                    TextBlock.text (
+                                        if currentSubscription.Value |> Option.map (fun s -> s.IsActive) |> Option.defaultValue false
+                                        then "● Live"
+                                        else "○ Idle"
                                     )
-                                    Button.fontSize 10.0
-                                    Button.padding (5.0, 2.0)
-                                    Button.isEnabled (currentBindings.Length > 0)
+                                    TextBlock.fontSize 10.0
+                                    TextBlock.foreground (
+                                        if currentSubscription.Value |> Option.map (fun s -> s.IsActive) |> Option.defaultValue false
+                                        then SolidColorBrush(Color.Parse("#00AA00"))
+                                        else SolidColorBrush Colors.Gray
+                                    )
                                 ]
                             ]
                         ]
@@ -950,12 +958,19 @@ module ApiExplorer =
                         ComboBox.create [
                             ComboBox.placeholderText "Select port..."
                             ComboBox.horizontalAlignment HorizontalAlignment.Stretch
-                            ComboBox.dataItems model.SerialPorts
-                            ComboBox.selectedItem (model.SerialPortName |> Option.defaultValue "")
+                            ComboBox.dataItems (model.DetectedPorts |> List.map portDisplayName)
+                            ComboBox.selectedItem (
+                                model.SerialPortName
+                                |> Option.bind (fun name -> model.DetectedPorts |> List.tryFind (fun p -> p.PortName = name))
+                                |> Option.map portDisplayName
+                                |> Option.defaultValue ""
+                            )
                             ComboBox.onSelectedItemChanged (fun item ->
-                                let portName = string item
-                                if String.IsNullOrEmpty portName then dispatch (SetSerialPort None)
-                                else dispatch (SetSerialPort (Some portName))
+                                let displayName = string item
+                                if String.IsNullOrEmpty displayName then dispatch (SetSerialPort None)
+                                else
+                                    let port = model.DetectedPorts |> List.tryFind (fun p -> portDisplayName p = displayName)
+                                    dispatch (SetSerialPort (port |> Option.map (fun p -> p.PortName)))
                             )
                             ComboBox.fontSize 11.0
                         ]
