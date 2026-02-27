@@ -4,10 +4,6 @@ open System
 
 module SerialPortModule =
 
-    /// Get list of available COM ports
-    let getAvailablePorts () : string list =
-        IO.Ports.SerialPort.GetPortNames() |> List.ofArray
-
     /// Connect to a serial port asynchronously
     let connectAsync (portName: string) (baudRate: int) : Async<Result<IO.Ports.SerialPort, SerialError>> =
         async {
@@ -62,26 +58,3 @@ module SerialPortModule =
         | Some port ->
             port.Dispose()
         | None -> ()
-
-    /// Start polling for available ports, calling the callback when the list changes
-    let startPortPolling (onUpdate: string list -> unit) : IDisposable =
-        let timer = Avalonia.Threading.DispatcherTimer()
-        timer.Interval <- TimeSpan.FromMilliseconds 1000.0
-        
-        let mutable lastPorts = []
-        
-        timer.Tick.Add(fun _ ->
-            let currentPorts = getAvailablePorts ()
-            if currentPorts <> lastPorts then
-                lastPorts <- currentPorts
-                onUpdate currentPorts
-        )
-        
-        timer.Start()
-        
-        { new IDisposable with
-            member _.Dispose() =
-                timer.Stop()
-        }
-
-
