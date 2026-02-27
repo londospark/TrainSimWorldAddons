@@ -17,7 +17,6 @@
         <Compile Include="SerialPort.fs" />
         <Compile Include="PortDetection.fs" />
         <Compile Include="CommandMapping.fs" />
-        <Compile Include="Components.fs" />
         <Compile Include="ApiExplorer.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
