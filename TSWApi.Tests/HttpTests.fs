@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Net
 open System.Net.Http
-open System.Threading
 open System.Threading.Tasks
 open Xunit
 open TSWApi.Types

@@ -29,6 +29,7 @@
 - **Namespace gotcha:** `open Elmish` inside the `CounterApp` namespace triggers FS0893 because F# partially matches it to `Avalonia.FuncUI.Elmish`. Fix: use `open global.Elmish`.
 - **Polling timers:** Endpoint value polling at 200ms, loco detection at 1s. Timers remain as `DispatcherTimer` in `ctx.useEffect` (AfterInit) since `useElmish` doesn't expose Elmish subscriptions directly.
 - **Loco change handling:** `LocoDetected` now detects when loco changes (vs same loco repeating), reloads bindings from DB, clears stale `PollingValues`, and auto-starts polling if the new loco has bindings.
+- **Tree refresh on loco change:** When loco changes, `LocoDetected` now clears all tree state (`TreeRoot = []`, `SelectedNode = None`, `EndpointValues = Map.empty`) and issues `loadRootNodesCmd config` to reload the tree from the API. This ensures the UI reflects the current loco's API data, not stale data from the previous loco.
 
 ### Elmish + SQLite Integration (2026-02-25)
 **Date:** 2026-02-25  

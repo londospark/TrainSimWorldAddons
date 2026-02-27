@@ -3,14 +3,11 @@
 open System
 open System.Net.Http
 open Avalonia.Controls
-open Avalonia.FuncUI
 open Avalonia.FuncUI.DSL
 open Avalonia.FuncUI.Types
 open Avalonia.Layout
 open Avalonia.Media
-open Avalonia.Threading
 open TSWApi
-open TSWApi.Types
 open global.Elmish
 
 module ApiExplorer =
@@ -130,6 +127,22 @@ module ApiExplorer =
         elif not (System.String.IsNullOrEmpty n.Name) then n.Name
         else ""
 
+    /// Recursively map an API Node to a TreeNodeState, preserving nested children.
+    let rec private mapNodeToTreeState (parentPath: string) (n: TSWApi.Types.Node) : TreeNodeState =
+        let name = effectiveName n
+        let path =
+            if not (System.String.IsNullOrEmpty n.NodePath) then stripRootPrefix n.NodePath
+            else if parentPath = "" then name
+            else parentPath + "/" + name
+        let children =
+            match n.Nodes with
+            | Some nodes when nodes.Length > 0 ->
+                Some (nodes |> List.map (mapNodeToTreeState path))
+            | Some _ -> Some []
+            | None -> None
+        { Path = path; Name = name; IsExpanded = false
+          Children = children; Endpoints = n.Endpoints }
+
     // ─── Async commands ───
 
     let private connectCmd (baseUrl: string) (commKey: string) =
@@ -172,9 +185,7 @@ module ApiExplorer =
                         let nodes =
                             listResp.Nodes
                             |> Option.defaultValue []
-                            |> List.map (fun n ->
-                                { Path = stripRootPrefix n.NodePath; Name = effectiveName n; IsExpanded = false
-                                  Children = None; Endpoints = n.Endpoints })
+                            |> List.map (mapNodeToTreeState "")
                         return (nodes, elapsed)
                     | Error err -> return failwithf "List failed: %A" err
                 })
@@ -194,12 +205,7 @@ module ApiExplorer =
                         let children =
                             listResp.Nodes
                             |> Option.defaultValue []
-                            |> List.map (fun n ->
-                                let name = effectiveName n
-                                let path = if not (System.String.IsNullOrEmpty n.NodePath) then stripRootPrefix n.NodePath
-                                           else nodePath + "/" + name
-                                { Path = path; Name = name; IsExpanded = false
-                                  Children = None; Endpoints = n.Endpoints })
+                            |> List.map (mapNodeToTreeState nodePath)
                         return (nodePath, children, listResp.Endpoints, elapsed)
                     | Error err -> return failwithf "Expand failed: %A" err
                 })
@@ -420,7 +426,13 @@ module ApiExplorer =
                     CurrentLoco = Some locoName
                     BindingsConfig = newConfig
                     PollingValues = Map.empty
-                    IsPolling = hasBindings }, Cmd.none
+                    IsPolling = hasBindings
+                    TreeRoot = []
+                    SelectedNode = None
+                    EndpointValues = Map.empty },
+                match model.ApiConfig with
+                | Some config -> loadRootNodesCmd config
+                | None -> Cmd.none
 
         | LocoDetectError _ ->
             model, Cmd.none

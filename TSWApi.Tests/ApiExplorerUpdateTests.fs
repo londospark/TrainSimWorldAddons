@@ -550,3 +550,78 @@ let ``removeBinding is no-op for missing endpoint`` () =
     let loco = result.Locos |> List.find (fun l -> l.LocoName = "TestLoco")
     Assert.Equal(1, loco.BoundEndpoints.Length)
     Assert.Equal("A", loco.BoundEndpoints.[0].NodePath)
+
+[<Fact>]
+let ``Tree expansion works at 5 levels deep`` () =
+    // Level 0: Root with one node
+    let root = makeNode "CF" "CurrentFormation"
+    let initial = { connectedModel () with TreeRoot = [ root ] }
+
+    // Level 1: Expand CF -> get child "0"
+    let ch1 = [ makeNode "CF/0" "0" ]
+    let m1, _ = update (NodeExpanded("CF", ch1, None, testElapsed)) initial
+    Assert.True(m1.TreeRoot.[0].IsExpanded)
+    Assert.Equal(1, m1.TreeRoot.[0].Children.Value.Length)
+
+    // Level 2: ToggleExpand on "CF/0" -> should trigger ExpandNode
+    let m2, cmd2 = update (ToggleExpand "CF/0") m1
+    Assert.False(cmd2 |> List.isEmpty) // Should produce expand command
+
+    // Level 2: NodeExpanded for "CF/0"
+    let ch2 = [ makeNode "CF/0/Sim" "Simulation" ]
+    let m3, _ = update (NodeExpanded("CF/0", ch2, None, testElapsed)) m2
+
+    // Level 3: ToggleExpand on "CF/0/Sim" -> should trigger ExpandNode
+    let m4, cmd4 = update (ToggleExpand "CF/0/Sim") m3
+    Assert.False(cmd4 |> List.isEmpty) // Should produce expand command
+
+    // Level 3: NodeExpanded for "CF/0/Sim"
+    let ch3 = [ makeNode "CF/0/Sim/Bogie" "Bogie_2" ]
+    let m5, _ = update (NodeExpanded("CF/0/Sim", ch3, None, testElapsed)) m4
+
+    // Level 4: ToggleExpand on "CF/0/Sim/Bogie" -> should trigger ExpandNode
+    let m6, cmd6 = update (ToggleExpand "CF/0/Sim/Bogie") m5
+    Assert.False(cmd6 |> List.isEmpty) // Should produce expand command
+
+    // Level 4: NodeExpanded for "CF/0/Sim/Bogie"
+    let ch4 = [ makeNode "CF/0/Sim/Bogie/Children" "Children" ]
+    let m7, _ = update (NodeExpanded("CF/0/Sim/Bogie", ch4, None, testElapsed)) m6
+
+    // Level 5: ToggleExpand on "CF/0/Sim/Bogie/Children" -> should trigger ExpandNode
+    let m8, cmd8 = update (ToggleExpand "CF/0/Sim/Bogie/Children") m7
+    Assert.False(cmd8 |> List.isEmpty) // Should produce expand command at level 5
+
+    // Verify the full tree structure
+    let cfNode = m8.TreeRoot.[0]
+    Assert.True(cfNode.IsExpanded)
+    let node0 = cfNode.Children.Value.[0]
+    Assert.True(node0.IsExpanded)
+    let sim = node0.Children.Value.[0]
+    Assert.True(sim.IsExpanded)
+    let bogie = sim.Children.Value.[0]
+    Assert.True(bogie.IsExpanded)
+    let childrenNode = bogie.Children.Value.[0]
+    Assert.True(childrenNode.Children.IsNone) // Not yet expanded
+
+[<Fact>]
+let ``ToggleExpand on pre-populated node expands without API call`` () =
+    // Simulate a node pre-populated with children (from recursive mapping of root /list)
+    let grandchild = makeNode "Player/TC0" "TransformComponent0"
+    let parent = { makeNode "Player" "Player" with Children = Some [ grandchild ] }
+    let initial = { connectedModel () with TreeRoot = [ parent ] }
+    // ToggleExpand on parent should NOT trigger an API call (case 3: already has children)
+    let model, cmd = update (ToggleExpand "Player") initial
+    Assert.True(model.TreeRoot.[0].IsExpanded)
+    Assert.True(cmd |> List.isEmpty) // No API call needed
+    Assert.Equal(1, model.TreeRoot.[0].Children.Value.Length)
+    Assert.Equal("Player/TC0", model.TreeRoot.[0].Children.Value.[0].Path)
+
+[<Fact>]
+let ``ToggleExpand on pre-populated child triggers API expand`` () =
+    // Pre-populated grandchild has Children = None (not yet loaded)
+    let grandchild = makeNode "Player/TC0" "TransformComponent0"
+    let parent = { makeNode "Player" "Player" with IsExpanded = true; Children = Some [ grandchild ] }
+    let initial = { connectedModel () with TreeRoot = [ parent ] }
+    // ToggleExpand on grandchild should trigger API call (case 2: Children.IsNone)
+    let _, cmd = update (ToggleExpand "Player/TC0") initial
+    Assert.False(cmd |> List.isEmpty) // Should trigger API expand

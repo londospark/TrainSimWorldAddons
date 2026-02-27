@@ -8,7 +8,6 @@ open Avalonia.FuncUI.Hosts
 open Avalonia.Controls
 open Avalonia.FuncUI
 open Avalonia.FuncUI.DSL
-open Avalonia.Layout
 open Avalonia.Threading
 open global.Elmish
 open Avalonia.FuncUI.Elmish.ElmishHook
