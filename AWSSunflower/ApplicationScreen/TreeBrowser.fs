@@ -18,7 +18,7 @@ module TreeBrowser =
             StackPanel.children [
                 let arrow = if node.IsExpanded then "▼" else "▶"
                 Button.create [
-                    Button.content (sprintf "%s %s" arrow node.Name)
+                    Button.content $"{arrow} {node.Name}"
                     Button.onClick (fun _ ->
                         dispatch (ToggleExpand node.Path)
                         dispatch (SelectNode node)
@@ -31,7 +31,7 @@ module TreeBrowser =
 
                 if node.IsExpanded then
                     match node.Children with
-                    | Some children when children.Length > 0 ->
+                    | Some children when not children.IsEmpty ->
                         StackPanel.create [
                             StackPanel.orientation Orientation.Vertical
                             StackPanel.margin (20.0, 0.0, 0.0, 0.0)

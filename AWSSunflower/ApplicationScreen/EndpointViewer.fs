@@ -87,15 +87,15 @@ module EndpointViewer =
                             // Guard against CLR null from JSON deserialization
                             let endpoints = node.Endpoints |> Option.bind (fun eps -> if isNull (eps :> obj) then None else Some eps)
                             match endpoints with
-                            | Some endpoints when endpoints.Length > 0 ->
+                            | Some endpoints when not endpoints.IsEmpty ->
                                 [
                                     TextBlock.create [
-                                        TextBlock.text (sprintf "Node: %s" (nullSafe node.Name))
+                                        TextBlock.text $"Node: {nullSafe node.Name}"
                                         TextBlock.fontSize 16.0
                                         TextBlock.fontWeight FontWeight.Bold
                                     ]
                                     TextBlock.create [
-                                        TextBlock.text (sprintf "Path: %s" (nullSafe node.Path))
+                                        TextBlock.text $"Path: {nullSafe node.Path}"
                                         TextBlock.fontSize 11.0
                                         TextBlock.foreground (SolidColorBrush Colors.Gray)
                                     ]
@@ -111,7 +111,7 @@ module EndpointViewer =
                             | _ ->
                                 [
                                     TextBlock.create [
-                                        TextBlock.text (sprintf "Node: %s" node.Name)
+                                        TextBlock.text $"Node: {node.Name}"
                                         TextBlock.fontSize 16.0
                                         TextBlock.fontWeight FontWeight.Bold
                                     ]

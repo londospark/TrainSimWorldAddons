@@ -98,8 +98,8 @@ module HelpersTests =
         let config = { Version = 1; Locos = [locoConfig] }
         let result = getLocoBindings config "TestLoco"
         Assert.Equal(2, result.Length)
-        Assert.Equal(binding1, result.[0])
-        Assert.Equal(binding2, result.[1])
+        Assert.Equal(binding1, result[0])
+        Assert.Equal(binding2, result[1])
 
     [<Fact>]
     let ``getLocoBindings without matching loco returns empty list``() =
@@ -154,8 +154,8 @@ module HelpersTests =
         let updater n = { n with IsExpanded = true }
         let result = updateTreeNode "Root/Node1" updater nodes
         Assert.Equal(2, result.Length)
-        Assert.True(result.[0].IsExpanded)
-        Assert.False(result.[1].IsExpanded)
+        Assert.True(result[0].IsExpanded)
+        Assert.False(result[1].IsExpanded)
 
     [<Fact>]
     let ``updateTreeNode updates nested node and preserves parents``() =
@@ -165,8 +165,8 @@ module HelpersTests =
         let updater n = { n with IsExpanded = true }
         let result = updateTreeNode "Root/Parent/Child" updater nodes
         Assert.Equal(1, result.Length)
-        Assert.False(result.[0].IsExpanded)
-        Assert.True(result.[0].Children.Value.[0].IsExpanded)
+        Assert.False(result[0].IsExpanded)
+        Assert.True(result[0].Children.Value[0].IsExpanded)
 
     [<Fact>]
     let ``updateTreeNode with non-existent path returns list unchanged``() =
@@ -175,7 +175,7 @@ module HelpersTests =
         let updater n = { n with IsExpanded = true }
         let result = updateTreeNode "Root/NonExistent" updater nodes
         Assert.Equal(1, result.Length)
-        Assert.False(result.[0].IsExpanded)
+        Assert.False(result[0].IsExpanded)
 
     // ─── filterTree ───
 
@@ -202,7 +202,7 @@ module HelpersTests =
         let nodes = [node1; node2]
         let result = filterTree "Play" nodes
         Assert.Equal(1, result.Length)
-        Assert.Equal("Player", result.[0].Name)
+        Assert.Equal("Player", result[0].Name)
 
     [<Fact>]
     let ``filterTree with query matching parent returns parent with children``() =
@@ -211,8 +211,8 @@ module HelpersTests =
         let nodes = [parentNode]
         let result = filterTree "Parent" nodes
         Assert.Equal(1, result.Length)
-        Assert.Equal("Parent", result.[0].Name)
-        Assert.True(result.[0].Children.IsSome)
+        Assert.Equal("Parent", result[0].Name)
+        Assert.True(result[0].Children.IsSome)
 
     [<Fact>]
     let ``filterTree with query matching no nodes returns empty``() =
@@ -228,4 +228,4 @@ module HelpersTests =
         let nodes = [node1]
         let result = filterTree "PLAYER" nodes
         Assert.Equal(1, result.Length)
-        Assert.Equal("Player", result.[0].Name)
+        Assert.Equal("Player", result[0].Name)

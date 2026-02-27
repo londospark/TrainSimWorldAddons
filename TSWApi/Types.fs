@@ -31,6 +31,15 @@ module Types =
         /// A configuration error (invalid URL, empty values, etc.)
         | ConfigError of string
 
+    /// Format an ApiError as a human-readable string.
+    module ApiError =
+        let describe = function
+            | NetworkError ex -> $"Network error: {ex.Message}"
+            | HttpError(status, msg) -> $"HTTP {status}: {msg}"
+            | AuthError msg -> $"Auth error: {msg}"
+            | ParseError msg -> $"Parse error: {msg}"
+            | ConfigError msg -> $"Config error: {msg}"
+
     /// Result type alias for API operations. Wraps Result&lt;'T, ApiError&gt;.
     type ApiResult<'T> = Result<'T, ApiError>
 

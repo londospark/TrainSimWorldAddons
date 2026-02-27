@@ -40,6 +40,7 @@ module PortDetection =
           IsArduino: bool }
 
     /// Result of scanning for Arduino devices.
+    [<RequireQualifiedAccess>]
     type DetectionResult =
         /// Exactly one Arduino found — safe to auto-select.
         | SingleArduino of DetectedPort
@@ -56,7 +57,7 @@ module PortDetection =
         let vidMatch = Regex.Match(deviceId, @"VID_([0-9A-Fa-f]{4})", RegexOptions.IgnoreCase)
         let pidMatch = Regex.Match(deviceId, @"PID_([0-9A-Fa-f]{4})", RegexOptions.IgnoreCase)
         if vidMatch.Success && pidMatch.Success then
-            Some (vidMatch.Groups.[1].Value.ToUpperInvariant(), pidMatch.Groups.[1].Value.ToUpperInvariant())
+            Some (vidMatch.Groups[1].Value.ToUpperInvariant(), pidMatch.Groups[1].Value.ToUpperInvariant())
         else
             None
 
@@ -133,13 +134,13 @@ module PortDetection =
     /// This is a pure function extracted for testability.
     let classifyPorts (ports: DetectedPort list) : DetectionResult =
         if ports.IsEmpty then
-            NoPorts
+            DetectionResult.NoPorts
         else
             let arduinos = ports |> List.filter (fun p -> p.IsArduino)
             match arduinos with
-            | [ single ] -> SingleArduino single
-            | [] -> NoArduinoFound ports
-            | multiple -> MultipleArduinos multiple
+            | [ single ] -> DetectionResult.SingleArduino single
+            | [] -> DetectionResult.NoArduinoFound ports
+            | multiple -> DetectionResult.MultipleArduinos multiple
 
     /// Scan for Arduino-compatible devices and return a detection result.
     let detectArduino () : DetectionResult =
@@ -149,5 +150,5 @@ module PortDetection =
     /// Shows "COM3 — Arduino Uno" if USB info is available, otherwise just "COM3".
     let portDisplayName (port: DetectedPort) : string =
         port.UsbInfo
-        |> Option.map (fun usb -> sprintf "%s — %s" port.PortName usb.Description)
+        |> Option.map (fun usb -> $"{port.PortName} — {usb.Description}")
         |> Option.defaultValue port.PortName

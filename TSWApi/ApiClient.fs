@@ -13,7 +13,7 @@ module ApiClient =
 
     /// List nodes at the given path, or root if None.
     let listNodes (client: HttpClient) (config: ApiConfig) (path: string option) : Async<ApiResult<ListResponse>> =
-        let endpoint = path |> Option.map (sprintf "/list/%s") |> Option.defaultValue "/list"
+        let endpoint = path |> Option.map (fun p -> $"/list/{p}") |> Option.defaultValue "/list"
         sendRequest<ListResponse> client config endpoint
 
     /// Get the value at the given endpoint path.

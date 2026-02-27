@@ -183,3 +183,29 @@
 - BindingsPanel is the only component that needs `open CounterApp.ApplicationScreenCommands` (for `currentSubscription` read)
 
 **Status:** ✅ Completed & tested — 200 tests pass (17 + 183)
+
+### F# Idiomaticity Audit (2026-02-28)
+**Date:** 2026-02-28  
+**Task:** Deep idiomaticity audit of all AWSSunflower source files — Elmish patterns, FuncUI DSL, F# style
+
+**Key Findings (15 total, report in `.squad/decisions/inbox/tom-rolt-app-audit.md`):**
+
+1. **Side effects in update (CRITICAL):** Six update handlers perform I/O directly (disposeSubscription, BindingPersistence.save, SerialPortModule.disconnect, Async.Start). All should be wrapped in `Cmd.ofEffect`. This is the #1 Elmish anti-pattern in the codebase.
+2. **BindingsPanel reads mutable ref in view:** `currentSubscription.Value` bypasses MVU — add `IsSubscriptionActive: bool` to Model.
+3. **AppColors returns strings, not brushes:** 16+ callsites wrap in `SolidColorBrush(Color.Parse(...))`. Change AppColors to return `IBrush` directly.
+4. **15+ sprintf calls should use `$"..."` interpolation:** Simple string formatting throughout views and helpers.
+5. **Dead `Toast` type in Types.fs:** Unused since single-screen layout redesign.
+6. **`ensureInitialized` in BindingPersistence.fs:** Double-checked locking — should use `Lazy<unit>`.
+7. **`readAllFromDb` uses Dictionary/ResizeArray:** Should use `List.groupBy` + F# computation expression reader loop.
+8. **CounterApp namespace:** Legacy name, should be AWSSunflower (separate PR).
+9. **`sendAsync` captures SynchronizationContext unnecessarily:** Returns Result, no UI mutation — remove context switch.
+10. **ComboBox.onSelectedItemChanged fragile obj cast:** Should pattern match on obj type.
+
+**Learnings:**
+- `Cmd.ofEffect` is the correct way to express synchronous side effects in Elmish — not inline calls in the update function
+- F# `Lazy<unit>` replaces double-checked locking for one-time initialization
+- `$"...%A{value}"` works in F# for structured formatting in interpolated strings (F# 6+)
+- AppColors as `IBrush` values eliminates repetitive `SolidColorBrush(Color.Parse(...))` wrapping in views
+- `when` guards on match cases can eliminate one level of `if/else` nesting in update handlers
+
+**Status:** ✅ Audit complete — report written to decisions inbox
