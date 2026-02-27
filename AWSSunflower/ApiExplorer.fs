@@ -19,13 +19,10 @@ module ApiExplorer =
     // ─── Model ───
 
     type Model =
-        { // Tab state
-          ActiveTab: int
-          // Serial port tab
+        { // Serial port
           SerialPorts: string list
           SerialConnectionState: ConnectionState
           SerialIsConnecting: bool
-          Toasts: Toast list
           // API Explorer
           BaseUrl: string
           CommKey: string
@@ -84,24 +81,18 @@ module ApiExplorer =
         | DisconnectSerial
         | SerialConnected of IO.Ports.SerialPort
         | SerialError of string
-        // Tab
-        | SetActiveTab of int
         // Serial tab (unified)
         | PortsUpdated of string list
         | ToggleSerialConnection
         | SerialConnectResult of Result<IO.Ports.SerialPort, SerialError>
-        | AddToast of message: string * isError: bool
-        | DismissToast of Guid
         | SendSerialCommand of string
 
     // ─── Init ───
 
     let init () =
-        { ActiveTab = 0
-          SerialPorts = []
+        { SerialPorts = []
           SerialConnectionState = ConnectionState.Disconnected
           SerialIsConnecting = false
-          Toasts = []
           BaseUrl = "http://localhost:31270"
           CommKey = ""
           ApiConfig = None
@@ -504,9 +495,6 @@ module ApiExplorer =
         | SerialError _ ->
             model, Cmd.none
 
-        | SetActiveTab idx ->
-            { model with ActiveTab = idx }, Cmd.none
-
         | PortsUpdated ports ->
             { model with SerialPorts = ports }, Cmd.none
 
@@ -514,12 +502,10 @@ module ApiExplorer =
             match model.SerialConnectionState with
             | ConnectionState.Connected _ ->
                 SerialPortModule.disconnect model.SerialPort
-                let toast: Toast = { Id = Guid.NewGuid(); Message = "Disconnected from port"; IsError = false; CreatedAt = DateTime.Now }
                 { model with
                     SerialPort = None
                     SerialConnectionState = ConnectionState.Disconnected
-                    SerialIsConnecting = false
-                    Toasts = model.Toasts @ [toast] }, Cmd.none
+                    SerialIsConnecting = false }, Cmd.none
             | _ ->
                 match model.SerialPortName with
                 | Some portName ->
@@ -535,50 +521,23 @@ module ApiExplorer =
             match result with
             | Ok port ->
                 let portName = model.SerialPortName |> Option.defaultValue ""
-                let toast: Toast = { Id = Guid.NewGuid(); Message = sprintf "Connected to %s" portName; IsError = false; CreatedAt = DateTime.Now }
                 { model with
                     SerialPort = Some port
                     SerialConnectionState = ConnectionState.Connected portName
-                    SerialIsConnecting = false
-                    Toasts = model.Toasts @ [toast] }, Cmd.none
+                    SerialIsConnecting = false }, Cmd.none
             | Error error ->
-                let errorMsg =
-                    match error with
-                    | PortInUse p -> sprintf "Port %s is already in use" p
-                    | PortNotFound p -> sprintf "Port %s not found" p
-                    | OpenFailed msg -> sprintf "Failed to open port: %s" msg
-                    | SendFailed msg -> sprintf "Send failed: %s" msg
-                    | Disconnected -> "Port disconnected"
-                let toast: Toast = { Id = Guid.NewGuid(); Message = errorMsg; IsError = true; CreatedAt = DateTime.Now }
                 { model with
                     SerialConnectionState = ConnectionState.Error error
-                    SerialIsConnecting = false
-                    Toasts = model.Toasts @ [toast] }, Cmd.none
-
-        | AddToast (message, isError) ->
-            let toast: Toast = { Id = Guid.NewGuid(); Message = message; IsError = isError; CreatedAt = DateTime.Now }
-            { model with Toasts = model.Toasts @ [toast] }, Cmd.none
-
-        | DismissToast id ->
-            { model with Toasts = model.Toasts |> List.filter (fun t -> t.Id <> id) }, Cmd.none
+                    SerialIsConnecting = false }, Cmd.none
 
         | SendSerialCommand cmd ->
             match model.SerialPort with
             | Some port when port.IsOpen ->
-                model, Cmd.OfAsync.either
-                    (fun () -> SerialPortModule.sendAsync port cmd)
+                async {
+                    let! _ = SerialPortModule.sendAsync port cmd
                     ()
-                    (fun result ->
-                        match result with
-                        | Ok () -> AddToast (sprintf "Sent: %s" cmd, false)
-                        | Error error ->
-                            let errorMsg =
-                                match error with
-                                | SendFailed msg -> sprintf "Send failed: %s" msg
-                                | Disconnected -> "Port is disconnected"
-                                | _ -> "Unknown error"
-                            AddToast (errorMsg, true))
-                    (fun ex -> AddToast (sprintf "Send error: %s" ex.Message, true))
+                } |> Async.Start
+                model, Cmd.none
             | _ -> model, Cmd.none
 
     // ─── View ───
@@ -964,27 +923,146 @@ module ApiExplorer =
             )
         ]
 
-    // ─── Public tab views (called from Program.fs) ───
+    // ─── Serial Port Side Panel ───
 
-    let apiExplorerTabView (model: Model) (dispatch: Dispatch<Msg>) =
+    let private serialPortPanel (model: Model) (dispatch: Dispatch<Msg>) =
+        Border.create [
+            Border.dock Dock.Right
+            Border.width 200.0
+            Border.background (SolidColorBrush(Color.Parse("#2A2A2A")))
+            Border.borderBrush (SolidColorBrush(Color.Parse("#3A3A3A")))
+            Border.borderThickness (1.0, 0.0, 0.0, 0.0)
+            Border.padding 10.0
+            Border.child (
+                StackPanel.create [
+                    StackPanel.orientation Orientation.Vertical
+                    StackPanel.spacing 8.0
+                    StackPanel.children [
+                        // Header
+                        TextBlock.create [
+                            TextBlock.text "🔌 Serial Port"
+                            TextBlock.fontSize 14.0
+                            TextBlock.fontWeight FontWeight.Bold
+                            TextBlock.margin (0.0, 0.0, 0.0, 4.0)
+                        ]
+
+                        // COM port dropdown
+                        ComboBox.create [
+                            ComboBox.placeholderText "Select port..."
+                            ComboBox.horizontalAlignment HorizontalAlignment.Stretch
+                            ComboBox.dataItems model.SerialPorts
+                            ComboBox.selectedItem (model.SerialPortName |> Option.defaultValue "")
+                            ComboBox.onSelectedItemChanged (fun item ->
+                                let portName = string item
+                                if String.IsNullOrEmpty portName then dispatch (SetSerialPort None)
+                                else dispatch (SetSerialPort (Some portName))
+                            )
+                            ComboBox.fontSize 11.0
+                        ]
+
+                        // Connect/Disconnect button
+                        Button.create [
+                            Button.content (
+                                match model.SerialConnectionState with
+                                | ConnectionState.Connected _ -> "Disconnect"
+                                | ConnectionState.Connecting -> "Connecting..."
+                                | _ -> "Connect"
+                            )
+                            Button.onClick (fun _ -> dispatch ToggleSerialConnection)
+                            Button.isEnabled (
+                                match model.SerialConnectionState with
+                                | ConnectionState.Connecting -> false
+                                | _ -> model.SerialPortName.IsSome || (match model.SerialConnectionState with ConnectionState.Connected _ -> true | _ -> false)
+                            )
+                            Button.horizontalAlignment HorizontalAlignment.Stretch
+                            Button.fontSize 11.0
+                            Button.foreground (
+                                match model.SerialConnectionState with
+                                | ConnectionState.Connected _ -> SolidColorBrush(Color.Parse("#00AA00"))
+                                | ConnectionState.Error _ -> SolidColorBrush(Color.Parse("#FF5555"))
+                                | _ -> SolidColorBrush Colors.White
+                            )
+                        ]
+
+                        // Status indicator
+                        StackPanel.create [
+                            StackPanel.orientation Orientation.Horizontal
+                            StackPanel.spacing 6.0
+                            StackPanel.children [
+                                TextBlock.create [
+                                    TextBlock.text "●"
+                                    TextBlock.fontSize 10.0
+                                    TextBlock.foreground (
+                                        match model.SerialConnectionState with
+                                        | ConnectionState.Connected _ -> SolidColorBrush(Color.Parse("#00AA00"))
+                                        | ConnectionState.Error _ -> SolidColorBrush(Color.Parse("#FF5555"))
+                                        | ConnectionState.Connecting -> SolidColorBrush(Color.Parse("#FFAA00"))
+                                        | _ -> SolidColorBrush Colors.Gray
+                                    )
+                                ]
+                                TextBlock.create [
+                                    TextBlock.text (
+                                        match model.SerialConnectionState with
+                                        | ConnectionState.Connected p -> p
+                                        | ConnectionState.Connecting -> "Connecting..."
+                                        | ConnectionState.Disconnected -> "Not connected"
+                                        | ConnectionState.Error (PortInUse p) -> sprintf "%s in use" p
+                                        | ConnectionState.Error (PortNotFound p) -> sprintf "%s missing" p
+                                        | ConnectionState.Error (OpenFailed _) -> "Open failed"
+                                        | ConnectionState.Error (SendFailed _) -> "Send failed"
+                                        | ConnectionState.Error Disconnected -> "Disconnected"
+                                    )
+                                    TextBlock.fontSize 10.0
+                                    TextBlock.foreground (SolidColorBrush Colors.Gray)
+                                ]
+                            ]
+                        ]
+
+                        // Separator
+                        Border.create [
+                            Border.height 1.0
+                            Border.background (SolidColorBrush(Color.Parse("#3A3A3A")))
+                            Border.margin (0.0, 4.0)
+                        ]
+
+                        // Sunflower buttons
+                        Button.create [
+                            Button.content "🌻 Set Sunflower"
+                            Button.onClick (fun _ -> dispatch (SendSerialCommand "s"))
+                            Button.isEnabled (match model.SerialConnectionState with ConnectionState.Connected _ -> true | _ -> false)
+                            Button.horizontalAlignment HorizontalAlignment.Stretch
+                            Button.fontSize 11.0
+                            Button.padding (5.0, 6.0)
+                        ]
+                        Button.create [
+                            Button.content "✕ Clear Sunflower"
+                            Button.onClick (fun _ -> dispatch (SendSerialCommand "c"))
+                            Button.isEnabled (match model.SerialConnectionState with ConnectionState.Connected _ -> true | _ -> false)
+                            Button.horizontalAlignment HorizontalAlignment.Stretch
+                            Button.fontSize 11.0
+                            Button.padding (5.0, 6.0)
+                        ]
+                    ]
+                ]
+            )
+        ]
+
+    // ─── Public unified view (called from Program.fs) ───
+
+    let mainView (model: Model) (dispatch: Dispatch<Msg>) =
         DockPanel.create [
             DockPanel.children [
+                // Right: Serial port panel
+                serialPortPanel model dispatch
+                // Bottom: Status bar
                 statusBar model
-                connectionPanel model dispatch
+                // Bottom (above status): Bindings panel
                 bindingsPanel model dispatch
+                // Top: Connection panel
+                connectionPanel model dispatch
+                // Left: Tree browser
                 treeBrowserPanel model dispatch
+                // Center: Endpoint viewer (fills remaining)
                 endpointViewerPanel model dispatch
             ]
         ]
-
-    let serialPortTabView (model: Model) (dispatch: Dispatch<Msg>) =
-        Components.mainLayout
-            model.SerialPorts
-            model.SerialConnectionState
-            model.SerialIsConnecting
-            model.Toasts
-            (fun port -> dispatch (SetSerialPort port))
-            (fun () -> dispatch ToggleSerialConnection)
-            (fun () -> dispatch (SendSerialCommand "s"))
-            (fun () -> dispatch (SendSerialCommand "c"))
-            (fun id -> dispatch (DismissToast id))

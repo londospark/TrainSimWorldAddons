@@ -48,3 +48,39 @@
 - Coordinator fixed test isolation (binding mutations now pure in-memory)
 
 **Status:** ✅ Completed & tested
+
+### NRE & Unbind Bug Fixes (2026-02-25)
+**Date:** 2026-02-25  
+**Task:** Fix NullReferenceException crash in endpoint viewer + sunflower not clearing on unbind
+
+**Key Changes:**
+- **Null-safety in view:** Added `nullSafe` helper and CLR null guard for `Endpoints` list (`Some null` from JSON deserialization). `endpointViewerPanel` now guards `ep.Name`, `node.Path`, `node.Name`, and the endpoints list itself.
+- **UnbindEndpoint fix:** Now removes the unbound key from `PollingValues` map AND sends `SendSerialCommand "c"` via `Cmd.ofMsg` to reset sunflower hardware.
+- **LocoDetected fix:** On loco change, now batches `loadRootNodesCmd` with `Cmd.ofMsg (SendSerialCommand "c")` to clear stale hardware state.
+- **Pattern:** Use `Cmd.ofMsg` to chain serial commands from update handlers, keeping side-effects in the Elmish command pipeline rather than using `Async.Start` directly.
+
+**Test Integration:**
+- 127 tests passing (121 baseline + 6 new bug-fix tests)
+
+**Status:** ✅ Completed & tested
+
+### Single-Screen Layout Redesign (2026-02-25)
+**Date:** 2026-02-25  
+**Task:** Merge two-tab layout into single screen with serial port docked right; remove toast notifications
+
+**Key Changes:**
+- **Removed TabControl:** Replaced two-tab layout (Serial Port + API Explorer) with a single unified `mainView` using DockPanel
+- **Serial port side panel:** New compact 200px-wide panel docked right with port dropdown, connect button, status indicator (colored dot), and sunflower buttons
+- **Removed toast system:** Stripped `Toasts` field from Model, `AddToast`/`DismissToast` messages, toast handlers, toast auto-dismiss timer from Program.fs, and `errorToast`/`mainLayout` from Components.fs (now unused)
+- **Removed ActiveTab:** No longer needed without tabs
+- **Simplified SendSerialCommand:** Now fires-and-forgets via `Async.Start` instead of routing through toast messages
+- **Layout order:** DockPanel children order: serial panel (Right) → status bar (Bottom) → bindings panel (Bottom) → connection panel (Top) → tree browser (Left) → endpoint viewer (fills center)
+
+**Files Modified:**
+- `AWSSunflower/ApiExplorer.fs` — New `serialPortPanel`, `mainView`; removed `serialPortTabView`, `apiExplorerTabView`, toast/tab state
+- `AWSSunflower/Program.fs` — Removed TabControl + toast effect; calls `ApiExplorer.mainView`
+
+**Test Integration:**
+- 127 tests passing (no test changes needed — all removed fields were UI-only)
+
+**Status:** ✅ Completed & tested
