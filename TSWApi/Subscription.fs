@@ -66,6 +66,27 @@ module Subscription =
         { Address: EndpointAddress
           mutable LastValue: string option }
 
+    /// Extract the "Value" field from a GetResponse, defaulting to empty string if missing.
+    let internal extractValue (resp: GetResponse) =
+        if resp.Values.ContainsKey("Value") then string resp.Values["Value"]
+        else ""
+
+    /// Compare old vs new value and fire OnChange callback if different.
+    let internal notifyIfChanged (config: SubscriptionConfig) (lockObj: obj) (state: EndpointState) (newValue: string) =
+        lock lockObj (fun () ->
+            match state.LastValue with
+            | Some old when old = newValue -> ()
+            | oldVal ->
+                state.LastValue <- Some newValue
+                config.OnChange { Address = state.Address; OldValue = oldVal; NewValue = newValue })
+
+    /// Poll a single endpoint and handle the result.
+    let internal pollEndpoint (client: HttpClient) (apiConfig: ApiConfig) (subConfig: SubscriptionConfig) (lockObj: obj) (state: EndpointState) =
+        let path = endpointPath state.Address
+        match getValue client apiConfig path |> Async.RunSynchronously with
+        | Ok resp -> notifyIfChanged subConfig lockObj state (extractValue resp)
+        | Error err -> subConfig.OnError state.Address err
+
     /// Create a new subscription that polls endpoints via the TSW API.
     /// Polling starts immediately on the ThreadPool. Dispose to stop.
     let create (client: HttpClient) (apiConfig: ApiConfig) (subConfig: SubscriptionConfig) : ISubscription =
@@ -75,38 +96,13 @@ module Subscription =
         let mutable polling = 0
 
         let pollOnce () =
-            if Interlocked.CompareExchange(&polling, 1, 0) = 0 then
+            if Interlocked.CompareExchange(&polling, 1, 0) <> 0 then ()
+            else
                 try
-                    let snapshot =
-                        lock lockObj (fun () -> endpoints.Values |> Seq.toList)
-
+                    let snapshot = lock lockObj (fun () -> endpoints.Values |> Seq.toList)
                     for state in snapshot do
-                        if disposed then () // bail early on dispose
-                        else
-                            let path = endpointPath state.Address
-
-                            let result =
-                                getValue client apiConfig path |> Async.RunSynchronously
-
-                            match result with
-                            | Ok resp ->
-                                let newValue =
-                                    if resp.Values.ContainsKey("Value") then
-                                        string resp.Values["Value"]
-                                    else
-                                        ""
-
-                                lock lockObj (fun () ->
-                                    match state.LastValue with
-                                    | Some old when old = newValue -> () // no change
-                                    | oldVal ->
-                                        state.LastValue <- Some newValue
-
-                                        subConfig.OnChange
-                                            { Address = state.Address
-                                              OldValue = oldVal
-                                              NewValue = newValue })
-                            | Error err -> subConfig.OnError state.Address err
+                        if not disposed then
+                            pollEndpoint client apiConfig subConfig lockObj state
                 finally
                     Interlocked.Exchange(&polling, 0) |> ignore
 
