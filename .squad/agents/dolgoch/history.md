@@ -87,3 +87,32 @@ Updated HTTP client infrastructure to work with validated types:
 - Edward Thomas writing comprehensive SQLite CRUD tests on feature/elmish-sqlite
 
 **Status:** ✅ Ready for merge
+
+### HTTP Method Parameterization (2026-02-25)
+**Date:** 2026-02-25  
+**Branch:** feature/http-verbs  
+**Task:** Extend Http.fs with HTTP method parameterization (POST/PATCH/DELETE support)
+
+**Implementation:**
+- Added `sendRequestWithMethod` — generic HTTP method handler with optional body
+- Refactored existing `sendRequest` to delegate to `sendRequestWithMethod` with GET + no body
+- Added convenience wrappers: `sendPost`, `sendPatch`, `sendDelete`
+- Body content automatically sets `Content-Type: application/json` when provided
+- All methods maintain HTTP/1.1 version requirement (TSW6)
+- All methods include DTGCommKey header
+
+**TDD Approach:**
+- Wrote 10 tests FIRST covering:
+  - Method parameterization (GET/POST/PATCH/DELETE)
+  - Request body handling (present/absent)
+  - Content-Type header verification
+  - DTGCommKey header on all methods
+  - HTTP/1.1 version enforcement
+  - Convenience wrapper delegation
+- All 200 tests pass (190 existing + 10 new)
+
+**Test Infrastructure:**
+- Enhanced MockHandler to capture request method, body, and Content-Type before disposal
+- Used task-based SendAsync override to read HttpContent before HttpRequestMessage disposal
+
+**Status:** ✅ Ready for merge
