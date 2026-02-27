@@ -3,6 +3,7 @@
 open System
 
 /// Result of a serial port operation
+[<RequireQualifiedAccess>]
 type SerialError =
     | PortInUse of portName: string
     | PortNotFound of portName: string
@@ -17,15 +18,6 @@ type ConnectionState =
     | Connecting
     | Connected of portName: string
     | Error of SerialError
-
-/// Toast notification data
-type Toast =
-    {
-        Id: Guid
-        Message: string
-        IsError: bool
-        CreatedAt: DateTime
-    }
 
 /// API connection state
 [<RequireQualifiedAccess>]

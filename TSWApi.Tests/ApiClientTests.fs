@@ -67,7 +67,7 @@ let ``listNodes returns endpoints when path specified`` () = async {
         Assert.Equal("AWS_TPWS_Service", list.NodeName)
         Assert.True(list.Endpoints.IsSome)
         Assert.Equal(2, list.Endpoints.Value.Length)
-        Assert.Equal("Property.bIsAWS_CutIn", list.Endpoints.Value.[0].Name)
+        Assert.Equal("Property.bIsAWS_CutIn", list.Endpoints.Value[0].Name)
     | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
 }
 

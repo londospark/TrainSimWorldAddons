@@ -34,11 +34,11 @@ module SerialPortPanel =
                         | ConnectionState.Connected p -> p
                         | ConnectionState.Connecting -> "Connecting..."
                         | ConnectionState.Disconnected -> "Not connected"
-                        | ConnectionState.Error (PortInUse p) -> sprintf "%s in use" p
-                        | ConnectionState.Error (PortNotFound p) -> sprintf "%s missing" p
-                        | ConnectionState.Error (OpenFailed _) -> "Open failed"
-                        | ConnectionState.Error (SendFailed _) -> "Send failed"
-                        | ConnectionState.Error Disconnected -> "Disconnected"
+                        | ConnectionState.Error (SerialError.PortInUse p) -> $"{p} in use"
+                        | ConnectionState.Error (SerialError.PortNotFound p) -> $"{p} missing"
+                        | ConnectionState.Error (SerialError.OpenFailed _) -> "Open failed"
+                        | ConnectionState.Error (SerialError.SendFailed _) -> "Send failed"
+                        | ConnectionState.Error SerialError.Disconnected -> "Disconnected"
                     )
                     TextBlock.fontSize 10.0
                     TextBlock.foreground (SolidColorBrush Colors.Gray)

@@ -101,7 +101,7 @@ let ``CollapseNode sets node IsExpanded to false``() =
 let ``EndpointValueReceived adds value to EndpointValues``() =
     let model = testModel ()
     let newModel, _ = update (EndpointValueReceived ("key", "val", System.TimeSpan.FromMilliseconds(100.0))) model
-    Assert.Equal("val", newModel.EndpointValues.["key"])
+    Assert.Equal("val", newModel.EndpointValues["key"])
 
 [<Fact>]
 let ``SetSerialPort updates SerialPortName``() =

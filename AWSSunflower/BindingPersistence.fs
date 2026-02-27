@@ -108,15 +108,15 @@ module BindingPersistence =
             let locoName = reader.GetString(0)
             if not (locoMap.ContainsKey locoName) then
                 locoOrder.Add(locoName)
-                locoMap.[locoName] <- ResizeArray<BoundEndpoint>()
+                locoMap[locoName] <- ResizeArray<BoundEndpoint>()
             if not (reader.IsDBNull(1)) then
-                locoMap.[locoName].Add({
+                locoMap[locoName].Add({
                     NodePath = reader.GetString(1)
                     EndpointName = reader.GetString(2)
                     Label = reader.GetString(3)
                 })
         { Version = 1
-          Locos = locoOrder |> Seq.map (fun name -> { LocoName = name; BoundEndpoints = locoMap.[name] |> Seq.toList }) |> Seq.toList }
+          Locos = locoOrder |> Seq.map (fun name -> { LocoName = name; BoundEndpoints = locoMap[name] |> Seq.toList }) |> Seq.toList }
 
     let load () : BindingsConfig =
         try

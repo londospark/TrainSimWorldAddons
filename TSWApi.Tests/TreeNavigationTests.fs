@@ -134,7 +134,7 @@ let ``getChildNodes returns children of node`` () =
     let node = getNodeAtPath sampleTree [ "Player" ]
     let children = getChildNodes node.Value
     Assert.Equal(2, children.Length)
-    Assert.Equal("TransformComponent0", children.[0].NodeName)
+    Assert.Equal("TransformComponent0", children[0].NodeName)
 
 [<Fact>]
 let ``getChildNodes returns empty for leaf node`` () =

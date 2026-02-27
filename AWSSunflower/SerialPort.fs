@@ -23,11 +23,11 @@ module SerialPortModule =
                 return Ok port
             with
             | :? UnauthorizedAccessException ->
-                return Error (PortInUse portName)
+                return Error (SerialError.PortInUse portName)
             | :? System.IO.FileNotFoundException ->
-                return Error (PortNotFound portName)
+                return Error (SerialError.PortNotFound portName)
             | ex ->
-                return Error (OpenFailed ex.Message)
+                return Error (SerialError.OpenFailed ex.Message)
         }
 
     /// Send data over serial port asynchronously
@@ -36,7 +36,7 @@ module SerialPortModule =
             let uiContext = Threading.SynchronizationContext.Current
             try
                 if not port.IsOpen then
-                    return Error Disconnected
+                    return Error SerialError.Disconnected
                 else
                     do! Async.SwitchToThreadPool()
                     port.WriteLine data
@@ -44,7 +44,7 @@ module SerialPortModule =
                     return Ok ()
             with
             | ex ->
-                return Error (SendFailed ex.Message)
+                return Error (SerialError.SendFailed ex.Message)
         }
 
     /// Disconnect and clean up a serial port
