@@ -21,6 +21,16 @@ module ApiExplorer =
     let private httpClient = new HttpClient()
     let private currentSubscription : ISubscription option ref = ref None
 
+    // ─── Color constants ───
+
+    module private AppColors =
+        let connected = "#00AA00"
+        let error = "#FF5555"
+        let warning = "#FFAA00"
+        let panelBg = "#2A2A2A"
+        let border = "#3A3A3A"
+        let info = "#55AAFF"
+
     // ─── Model ───
 
     type Model =
@@ -79,10 +89,7 @@ module ApiExplorer =
         | EndpointChanged of ValueChange
         // Serial (API Explorer internal)
         | SetSerialPort of string option
-        | ConnectSerial
         | DisconnectSerial
-        | SerialConnected of IO.Ports.SerialPort
-        | SerialError of string
         // Serial tab (unified)
         | PortsUpdated of DetectedPort list
         | ToggleSerialConnection
@@ -139,13 +146,39 @@ module ApiExplorer =
         { Path = path; Name = name; IsExpanded = false
           Children = children; Endpoints = n.Endpoints }
 
+    let private endpointKey nodePath endpointName = sprintf "%s.%s" nodePath endpointName
+
+    let private getLocoBindings (config: BindingsConfig) (locoName: string) =
+        config.Locos
+        |> List.tryFind (fun l -> l.LocoName = locoName)
+        |> Option.map (fun l -> l.BoundEndpoints)
+        |> Option.defaultValue []
+
+    let private isSerialConnected (model: Model) =
+        match model.SerialConnectionState with ConnectionState.Connected _ -> true | _ -> false
+
+    let private resetSerialCmd (model: Model) =
+        model.ActiveAddon
+        |> Option.bind (fun addon -> CommandMapping.resetCommand addon |> Option.map CommandMapping.toWireString)
+        |> Option.map (fun wire -> Cmd.ofMsg (SendSerialCommand wire))
+        |> Option.defaultValue Cmd.none
+
     // ─── Async commands ───
+
+    let private timedApiCall (apiCall: Async<ApiResult<'T>>) : Async<'T * TimeSpan> =
+        async {
+            let startTime = DateTime.Now
+            let! result = apiCall
+            let elapsed = DateTime.Now - startTime
+            match result with
+            | Ok value -> return (value, elapsed)
+            | Error err -> return failwithf "API error: %A" err
+        }
 
     let private connectCmd (baseUrl: string) (commKey: string) =
         Cmd.OfAsync.either
             (fun () ->
                 async {
-                    let startTime = DateTime.Now
                     let keyValue =
                         if String.IsNullOrWhiteSpace(commKey) then
                             let myGamesPath =
@@ -159,11 +192,8 @@ module ApiExplorer =
                         match TSWApi.Http.createConfigWithUrl baseUrl keyValue with
                         | Ok c -> c
                         | Error err -> failwithf "Invalid configuration: %A" err
-                    let! infoResult = TSWApi.ApiClient.getInfo httpClient config
-                    let elapsed = DateTime.Now - startTime
-                    match infoResult with
-                    | Ok info -> return (keyValue, config, info, elapsed)
-                    | Error err -> return failwithf "API error: %A" err
+                    let! (info, elapsed) = timedApiCall (TSWApi.ApiClient.getInfo httpClient config)
+                    return (keyValue, config, info, elapsed)
                 })
             ()
             (fun (key, config, info, elapsed) -> ConnectSuccess(key, config, info, elapsed))
@@ -173,17 +203,12 @@ module ApiExplorer =
         Cmd.OfAsync.either
             (fun () ->
                 async {
-                    let startTime = DateTime.Now
-                    let! listResult = TSWApi.ApiClient.listNodes httpClient config None
-                    let elapsed = DateTime.Now - startTime
-                    match listResult with
-                    | Ok listResp ->
-                        let nodes =
-                            listResp.Nodes
-                            |> Option.defaultValue []
-                            |> List.map (mapNodeToTreeState "")
-                        return (nodes, elapsed)
-                    | Error err -> return failwithf "List failed: %A" err
+                    let! (listResp, elapsed) = timedApiCall (TSWApi.ApiClient.listNodes httpClient config None)
+                    let nodes =
+                        listResp.Nodes
+                        |> Option.defaultValue []
+                        |> List.map (mapNodeToTreeState "")
+                    return (nodes, elapsed)
                 })
             ()
             (fun (nodes, elapsed) -> RootNodesLoaded(nodes, elapsed))
@@ -193,17 +218,12 @@ module ApiExplorer =
         Cmd.OfAsync.either
             (fun () ->
                 async {
-                    let startTime = DateTime.Now
-                    let! listResult = TSWApi.ApiClient.listNodes httpClient config (Some nodePath)
-                    let elapsed = DateTime.Now - startTime
-                    match listResult with
-                    | Ok listResp ->
-                        let children =
-                            listResp.Nodes
-                            |> Option.defaultValue []
-                            |> List.map (mapNodeToTreeState nodePath)
-                        return (nodePath, children, listResp.Endpoints, elapsed)
-                    | Error err -> return failwithf "Expand failed: %A" err
+                    let! (listResp, elapsed) = timedApiCall (TSWApi.ApiClient.listNodes httpClient config (Some nodePath))
+                    let children =
+                        listResp.Nodes
+                        |> Option.defaultValue []
+                        |> List.map (mapNodeToTreeState nodePath)
+                    return (nodePath, children, listResp.Endpoints, elapsed)
                 })
             ()
             (fun (p, ch, eps, elapsed) -> NodeExpanded(p, ch, eps, elapsed))
@@ -213,20 +233,15 @@ module ApiExplorer =
         Cmd.OfAsync.either
             (fun () ->
                 async {
-                    let startTime = DateTime.Now
-                    let! getResult = TSWApi.ApiClient.getValue httpClient config endpointPath
-                    let elapsed = DateTime.Now - startTime
-                    match getResult with
-                    | Ok getResp ->
-                        let valueStr =
-                            if isNull (getResp.Values :> obj) || getResp.Values.Count = 0 then
-                                "(no values returned)"
-                            else
-                                getResp.Values
-                                |> Seq.map (fun kvp -> sprintf "%s: %O" kvp.Key kvp.Value)
-                                |> String.concat ", "
-                        return (endpointPath, valueStr, elapsed)
-                    | Error err -> return failwithf "Get failed: %A" err
+                    let! (getResp, elapsed) = timedApiCall (TSWApi.ApiClient.getValue httpClient config endpointPath)
+                    let valueStr =
+                        if isNull (getResp.Values :> obj) || getResp.Values.Count = 0 then
+                            "(no values returned)"
+                        else
+                            getResp.Values
+                            |> Seq.map (fun kvp -> sprintf "%s: %O" kvp.Key kvp.Value)
+                            |> String.concat ", "
+                    return (endpointPath, valueStr, elapsed)
                 })
             ()
             (fun (p, v, elapsed) -> EndpointValueReceived(p, v, elapsed))
@@ -268,19 +283,6 @@ module ApiExplorer =
     let private disposeSubscription () =
         currentSubscription.Value |> Option.iter (fun s -> s.Dispose())
         currentSubscription.Value <- None
-
-    let private connectSerialCmd (portName: string) =
-        Cmd.OfAsync.either
-            (fun () ->
-                async {
-                    let! result = SerialPortModule.connectAsync portName 9600
-                    match result with
-                    | Ok port -> return port
-                    | Error err -> return failwithf "Serial connect failed: %A" err
-                })
-            ()
-            SerialConnected
-            (fun ex -> SerialError ex.Message)
 
     // ─── Tree helpers ───
 
@@ -378,50 +380,36 @@ module ApiExplorer =
             { model with ConnectionState = ApiConnectionState.Error errorMsg }, Cmd.none
 
         | BindEndpoint (nodePath, endpointName) ->
-            match model.CurrentLoco with
-            | Some locoName ->
-                let binding = { NodePath = nodePath; EndpointName = endpointName; Label = sprintf "%s.%s" nodePath endpointName }
+            match model.CurrentLoco, model.ApiConfig with
+            | None, _ | _, None -> model, Cmd.none
+            | Some locoName, Some config ->
+                let binding = { NodePath = nodePath; EndpointName = endpointName; Label = endpointKey nodePath endpointName }
                 let newConfig = BindingPersistence.addBinding model.BindingsConfig locoName binding
                 BindingPersistence.save newConfig
                 let newModel = { model with BindingsConfig = newConfig }
                 let addr = { NodePath = nodePath; EndpointName = endpointName }
-                match model.ApiConfig with
-                | Some config ->
-                    // Add to existing subscription or create new one
-                    match currentSubscription.Value with
-                    | Some sub ->
-                        sub.Add addr
-                        newModel, Cmd.none
-                    | None ->
-                        let allBindings =
-                            newConfig.Locos
-                            |> List.tryFind (fun l -> l.LocoName = locoName)
-                            |> Option.map (fun l -> l.BoundEndpoints)
-                            |> Option.defaultValue []
-                        newModel, createSubscriptionCmd config allBindings
-                | None -> newModel, Cmd.none
-            | None -> model, Cmd.none
+                match currentSubscription.Value with
+                | Some sub ->
+                    sub.Add addr
+                    newModel, Cmd.none
+                | None ->
+                    let allBindings = getLocoBindings newConfig locoName
+                    newModel, createSubscriptionCmd config allBindings
 
         | UnbindEndpoint (nodePath, endpointName) ->
             match model.CurrentLoco with
             | Some locoName ->
                 let newConfig = BindingPersistence.removeBinding model.BindingsConfig locoName nodePath endpointName
                 BindingPersistence.save newConfig
-                let key = sprintf "%s.%s" nodePath endpointName
+                let key = endpointKey nodePath endpointName
                 let addr = { NodePath = nodePath; EndpointName = endpointName }
-                // Remove from subscription
                 currentSubscription.Value |> Option.iter (fun sub ->
                     sub.Remove addr
                     if sub.Endpoints.IsEmpty then disposeSubscription ())
-                let resetCmd =
-                    model.ActiveAddon
-                    |> Option.bind (fun addon -> CommandMapping.resetCommand addon |> Option.map CommandMapping.toWireString)
-                    |> Option.map (fun wire -> Cmd.ofMsg (SendSerialCommand wire))
-                    |> Option.defaultValue Cmd.none
                 { model with
                     BindingsConfig = newConfig
                     PollingValues = Map.remove key model.PollingValues },
-                resetCmd
+                resetSerialCmd model
             | None -> model, Cmd.none
 
         | DetectLoco ->
@@ -435,16 +423,7 @@ module ApiExplorer =
             else
                 disposeSubscription ()
                 let newConfig = BindingPersistence.load ()
-                let locoBindings =
-                    newConfig.Locos
-                    |> List.tryFind (fun l -> l.LocoName = locoName)
-                    |> Option.map (fun l -> l.BoundEndpoints)
-                    |> Option.defaultValue []
-                let resetCmd =
-                    model.ActiveAddon
-                    |> Option.bind (fun addon -> CommandMapping.resetCommand addon |> Option.map CommandMapping.toWireString)
-                    |> Option.map (fun wire -> Cmd.ofMsg (SendSerialCommand wire))
-                    |> Option.defaultValue Cmd.none
+                let locoBindings = getLocoBindings newConfig locoName
                 let subCmd =
                     match model.ApiConfig with
                     | Some config when not locoBindings.IsEmpty -> createSubscriptionCmd config locoBindings
@@ -460,7 +439,7 @@ module ApiExplorer =
                     match model.ApiConfig with
                     | Some config -> loadRootNodesCmd config
                     | None -> Cmd.none
-                    resetCmd
+                    resetSerialCmd model
                     subCmd
                 ]
 
@@ -480,20 +459,9 @@ module ApiExplorer =
         | SetSerialPort portName ->
             { model with SerialPortName = portName }, Cmd.none
 
-        | ConnectSerial ->
-            match model.SerialPortName with
-            | Some name -> model, connectSerialCmd name
-            | None -> model, Cmd.none
-
         | DisconnectSerial ->
             SerialPortModule.disconnect model.SerialPort
             { model with SerialPort = None }, Cmd.none
-
-        | SerialConnected port ->
-            { model with SerialPort = Some port }, Cmd.none
-
-        | SerialError _ ->
-            model, Cmd.none
 
         | PortsUpdated ports ->
             let newModel = { model with DetectedPorts = ports }
@@ -597,7 +565,7 @@ module ApiExplorer =
     let private statusBar (model: Model) =
         Border.create [
             Border.dock Dock.Bottom
-            Border.background (SolidColorBrush(Color.Parse("#2A2A2A")))
+            Border.background (SolidColorBrush(Color.Parse(AppColors.panelBg)))
             Border.padding 10.0
             Border.child (
                 StackPanel.create [
@@ -615,8 +583,8 @@ module ApiExplorer =
                             TextBlock.fontSize 11.0
                             TextBlock.foreground (
                                 match model.ConnectionState with
-                                | ApiConnectionState.Connected _ -> SolidColorBrush(Color.Parse("#00AA00"))
-                                | ApiConnectionState.Error _ -> SolidColorBrush(Color.Parse("#FF5555"))
+                                | ApiConnectionState.Connected _ -> SolidColorBrush(Color.Parse(AppColors.connected))
+                                | ApiConnectionState.Error _ -> SolidColorBrush(Color.Parse(AppColors.error))
                                 | _ -> SolidColorBrush Colors.White
                             )
                         ]
@@ -634,7 +602,7 @@ module ApiExplorer =
                             TextBlock.create [
                                 TextBlock.text (sprintf "Loco: %s" loco)
                                 TextBlock.fontSize 11.0
-                                TextBlock.foreground (SolidColorBrush(Color.Parse("#55AAFF")))
+                                TextBlock.foreground (SolidColorBrush(Color.Parse(AppColors.info)))
                             ]
                         | None -> ()
                     ]
@@ -696,7 +664,7 @@ module ApiExplorer =
         Border.create [
             Border.dock Dock.Left
             Border.width 300.0
-            Border.borderBrush (SolidColorBrush(Color.Parse("#3A3A3A")))
+            Border.borderBrush (SolidColorBrush(Color.Parse(AppColors.border)))
             Border.borderThickness (0.0, 0.0, 1.0, 0.0)
             Border.child (
                 DockPanel.create [
@@ -785,12 +753,12 @@ module ApiExplorer =
                                                             TextBlock.create [
                                                                 TextBlock.text "(writable)"
                                                                 TextBlock.fontSize 10.0
-                                                                TextBlock.foreground (SolidColorBrush(Color.Parse("#FFAA00")))
+                                                                TextBlock.foreground (SolidColorBrush(Color.Parse(AppColors.warning)))
                                                             ]
                                                         Button.create [
                                                             Button.content "Get Value"
                                                             Button.onClick (fun _ ->
-                                                                dispatch (GetEndpointValue (sprintf "%s.%s" nodePath epName))
+                                                                dispatch (GetEndpointValue (endpointKey nodePath epName))
                                                             )
                                                             Button.fontSize 10.0
                                                             Button.padding (5.0, 2.0)
@@ -807,7 +775,7 @@ module ApiExplorer =
                                                     ]
                                                 ]
 
-                                                let fullPath = sprintf "%s.%s" nodePath epName
+                                                let fullPath = endpointKey nodePath epName
                                                 match Map.tryFind fullPath model.EndpointValues with
                                                 | Some value ->
                                                     TextBox.create [
@@ -842,15 +810,11 @@ module ApiExplorer =
     let private bindingsPanel (model: Model) (dispatch: Dispatch<Msg>) =
         let currentBindings =
             match model.CurrentLoco with
-            | Some locoName ->
-                model.BindingsConfig.Locos
-                |> List.tryFind (fun l -> l.LocoName = locoName)
-                |> Option.map (fun l -> l.BoundEndpoints)
-                |> Option.defaultValue []
+            | Some locoName -> getLocoBindings model.BindingsConfig locoName
             | None -> []
         Border.create [
             Border.dock Dock.Bottom
-            Border.borderBrush (SolidColorBrush(Color.Parse("#3A3A3A")))
+            Border.borderBrush (SolidColorBrush(Color.Parse(AppColors.border)))
             Border.borderThickness (0.0, 1.0, 0.0, 0.0)
             Border.maxHeight 200.0
             Border.child (
@@ -876,8 +840,7 @@ module ApiExplorer =
                                     TextBlock.fontSize 10.0
                                     TextBlock.foreground (
                                         if currentSubscription.Value |> Option.map (fun s -> s.IsActive) |> Option.defaultValue false
-                                        then SolidColorBrush(Color.Parse("#00AA00"))
-                                        else SolidColorBrush Colors.Gray
+                                        then SolidColorBrush(Color.Parse(AppColors.connected))                                        else SolidColorBrush Colors.Gray
                                     )
                                 ]
                             ]
@@ -899,7 +862,7 @@ module ApiExplorer =
                                             ]
                                         else
                                             currentBindings |> List.map (fun b ->
-                                                let key = sprintf "%s.%s" b.NodePath b.EndpointName
+                                                let key = endpointKey b.NodePath b.EndpointName
                                                 let value = Map.tryFind key model.PollingValues |> Option.defaultValue "—"
                                                 StackPanel.create [
                                                     StackPanel.orientation Orientation.Horizontal
@@ -937,8 +900,8 @@ module ApiExplorer =
         Border.create [
             Border.dock Dock.Right
             Border.width 200.0
-            Border.background (SolidColorBrush(Color.Parse("#2A2A2A")))
-            Border.borderBrush (SolidColorBrush(Color.Parse("#3A3A3A")))
+            Border.background (SolidColorBrush(Color.Parse(AppColors.panelBg)))
+            Border.borderBrush (SolidColorBrush(Color.Parse(AppColors.border)))
             Border.borderThickness (1.0, 0.0, 0.0, 0.0)
             Border.padding 10.0
             Border.child (
@@ -987,14 +950,14 @@ module ApiExplorer =
                             Button.isEnabled (
                                 match model.SerialConnectionState with
                                 | ConnectionState.Connecting -> false
-                                | _ -> model.SerialPortName.IsSome || (match model.SerialConnectionState with ConnectionState.Connected _ -> true | _ -> false)
+                                | _ -> model.SerialPortName.IsSome || isSerialConnected model
                             )
                             Button.horizontalAlignment HorizontalAlignment.Stretch
                             Button.fontSize 11.0
                             Button.foreground (
                                 match model.SerialConnectionState with
-                                | ConnectionState.Connected _ -> SolidColorBrush(Color.Parse("#00AA00"))
-                                | ConnectionState.Error _ -> SolidColorBrush(Color.Parse("#FF5555"))
+                                | ConnectionState.Connected _ -> SolidColorBrush(Color.Parse(AppColors.connected))
+                                | ConnectionState.Error _ -> SolidColorBrush(Color.Parse(AppColors.error))
                                 | _ -> SolidColorBrush Colors.White
                             )
                         ]
@@ -1009,9 +972,9 @@ module ApiExplorer =
                                     TextBlock.fontSize 10.0
                                     TextBlock.foreground (
                                         match model.SerialConnectionState with
-                                        | ConnectionState.Connected _ -> SolidColorBrush(Color.Parse("#00AA00"))
-                                        | ConnectionState.Error _ -> SolidColorBrush(Color.Parse("#FF5555"))
-                                        | ConnectionState.Connecting -> SolidColorBrush(Color.Parse("#FFAA00"))
+                                        | ConnectionState.Connected _ -> SolidColorBrush(Color.Parse(AppColors.connected))
+                                        | ConnectionState.Error _ -> SolidColorBrush(Color.Parse(AppColors.error))
+                                        | ConnectionState.Connecting -> SolidColorBrush(Color.Parse(AppColors.warning))
                                         | _ -> SolidColorBrush Colors.Gray
                                     )
                                 ]
@@ -1036,7 +999,7 @@ module ApiExplorer =
                         // Separator
                         Border.create [
                             Border.height 1.0
-                            Border.background (SolidColorBrush(Color.Parse("#3A3A3A")))
+                            Border.background (SolidColorBrush(Color.Parse(AppColors.border)))
                             Border.margin (0.0, 4.0)
                         ]
 
@@ -1044,7 +1007,7 @@ module ApiExplorer =
                         Button.create [
                             Button.content "🌻 Set Sunflower"
                             Button.onClick (fun _ -> dispatch (SendSerialCommand "s"))
-                            Button.isEnabled (match model.SerialConnectionState with ConnectionState.Connected _ -> true | _ -> false)
+                            Button.isEnabled (isSerialConnected model)
                             Button.horizontalAlignment HorizontalAlignment.Stretch
                             Button.fontSize 11.0
                             Button.padding (5.0, 6.0)
@@ -1052,7 +1015,7 @@ module ApiExplorer =
                         Button.create [
                             Button.content "✕ Clear Sunflower"
                             Button.onClick (fun _ -> dispatch (SendSerialCommand "c"))
-                            Button.isEnabled (match model.SerialConnectionState with ConnectionState.Connected _ -> true | _ -> false)
+                            Button.isEnabled (isSerialConnected model)
                             Button.horizontalAlignment HorizontalAlignment.Stretch
                             Button.fontSize 11.0
                             Button.padding (5.0, 6.0)
