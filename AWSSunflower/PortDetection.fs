@@ -67,6 +67,40 @@ module PortDetection =
     /// Registry path to USB device enumeration.
     let private usbEnumPath = @"SYSTEM\CurrentControlSet\Enum\USB"
 
+    /// Try to extract a COM port mapping from a single device instance registry key.
+    let private tryGetInstancePort (classKey: RegistryKey) (instance: string) (vid: string) (pid: string) : (string * UsbDeviceInfo) option =
+        use instKey = classKey.OpenSubKey(instance, false)
+        if isNull instKey then None
+        else
+            use paramsKey = instKey.OpenSubKey("Device Parameters", false)
+            if isNull paramsKey then None
+            else
+                paramsKey.GetValue("PortName")
+                |> Option.ofObj
+                |> Option.map string
+                |> Option.map (fun portName ->
+                    let desc =
+                        instKey.GetValue("FriendlyName")
+                        |> Option.ofObj
+                        |> Option.map string
+                        |> Option.defaultWith (fun () ->
+                            instKey.GetValue("DeviceDesc")
+                            |> Option.ofObj
+                            |> Option.map string
+                            |> Option.defaultValue "Unknown USB Device")
+                    portName, { Vid = vid; Pid = pid; Description = desc })
+
+    /// Get all port mappings for a single USB device class (e.g., "VID_2341&PID_0043").
+    let private tryGetPortMappings (usbKey: RegistryKey) (deviceClass: string) : (string * UsbDeviceInfo) seq =
+        match tryParseVidPid deviceClass with
+        | None -> Seq.empty
+        | Some (vid, pid) ->
+            use classKey = usbKey.OpenSubKey(deviceClass, false)
+            if isNull classKey then Seq.empty
+            else
+                classKey.GetSubKeyNames()
+                |> Seq.choose (fun instance -> tryGetInstancePort classKey instance vid pid)
+
     /// Get USB port mappings from Windows registry.
     /// Returns a map of COM port names to USB device info.
     let private getUsbPortMappings () : Map<string, UsbDeviceInfo> =
@@ -75,32 +109,9 @@ module PortDetection =
             if isNull usbKey then
                 Map.empty
             else
-                [| for deviceClass in usbKey.GetSubKeyNames() do
-                    match tryParseVidPid deviceClass with
-                    | None -> ()
-                    | Some (vid, pid) ->
-                        use classKey = usbKey.OpenSubKey(deviceClass, false)
-                        if not (isNull classKey) then
-                            for instance in classKey.GetSubKeyNames() do
-                                use instKey = classKey.OpenSubKey(instance, false)
-                                if not (isNull instKey) then
-                                    use paramsKey = instKey.OpenSubKey("Device Parameters", false)
-                                    if not (isNull paramsKey) then
-                                        let portName = paramsKey.GetValue("PortName") |> Option.ofObj |> Option.map string
-                                        match portName with
-                                        | Some pn ->
-                                            let desc =
-                                                instKey.GetValue("FriendlyName")
-                                                |> Option.ofObj
-                                                |> Option.map string
-                                                |> Option.defaultWith (fun () ->
-                                                    instKey.GetValue("DeviceDesc")
-                                                    |> Option.ofObj
-                                                    |> Option.map string
-                                                    |> Option.defaultValue "Unknown USB Device")
-                                            yield pn, { Vid = vid; Pid = pid; Description = desc }
-                                        | None -> () |]
-                |> Map.ofArray
+                usbKey.GetSubKeyNames()
+                |> Seq.collect (fun deviceClass -> tryGetPortMappings usbKey deviceClass)
+                |> Map.ofSeq
         with
         | :? Security.SecurityException
         | :? UnauthorizedAccessException ->

@@ -14,17 +14,19 @@ module TreeNavigation =
     let buildNodePath (segments: string list) : string =
         System.String.Join("/", segments)
 
+    /// Check if a node matches a name, falling back to Name when NodeName is empty.
+    let private nameMatches (name: string) (n: Node) =
+        n.NodeName = name || (System.String.IsNullOrEmpty(n.NodeName) && n.Name = name)
+
     /// Navigate a node tree to find a node at the given path segments.
     let rec getNodeAtPath (nodes: Node list) (path: string list) : Node option =
         match path with
         | [] -> None
         | [ name ] ->
-            nodes |> List.tryFind (fun n ->
-                n.NodeName = name || (System.String.IsNullOrEmpty(n.NodeName) && n.Name = name))
+            nodes |> List.tryFind (nameMatches name)
         | name :: rest ->
             nodes
-            |> List.tryFind (fun n ->
-                n.NodeName = name || (System.String.IsNullOrEmpty(n.NodeName) && n.Name = name))
+            |> List.tryFind (nameMatches name)
             |> Option.bind (fun n ->
                 match n.Nodes with
                 | Some children -> getNodeAtPath children rest
