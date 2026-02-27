@@ -68,3 +68,70 @@ Waited for Tom Rolt's implementation on `feature/recursive-search` branch and th
 **Results:** All 87 tests passed (14 original + 7 new + others).
 
 **Commit:** 839a8f0 on `feature/recursive-search`
+
+### 2025-07-25: Elmish Migration, SQLite Persistence, and Polling Tests
+
+Wrote 12 new tests on branch `feature/elmish-sqlite` covering three migration areas: Elmish update function changes, SQLite persistence pure functions, and polling/serial behavior.
+
+**Loco change behavior (3 tests):**
+- `LocoDetected with different loco clears polling values` — verifies PollingValues becomes Map.empty when loco changes
+- `LocoDetected with different loco reloads bindings config` — verifies BindingsConfig is reloaded and new loco has no bindings
+- `LocoDetected with same loco does not clear polling values` — verifies PollingValues remain intact when loco is unchanged
+
+**Serial value mapping (3 tests):**
+- `PollValueReceived with value containing 1 updates PollingValues` — verifies model state for "1" values
+- `PollValueReceived with value containing 0 updates PollingValues` — verifies model state for "0" values
+- `PollValueReceived with unchanged value does not trigger change` — verifies no-op when value is same
+
+**BindEndpoint immediate poll (2 tests):**
+- `BindEndpoint returns poll command when api config present` — verifies non-empty Cmd returned
+- `BindEndpoint returns no command when api config absent` — verifies Cmd.none when ApiConfig is None
+
+**Pure in-memory persistence functions (4 tests):**
+- `addBinding adds to empty config` — verifies new loco and binding created
+- `addBinding does not duplicate` — verifies idempotent behavior
+- `removeBinding removes specific endpoint` — verifies targeted removal
+- `removeBinding is no-op for missing endpoint` — verifies no change for non-existent binding
+
+**Key observations:**
+- The `update` function follows Elmish convention: `update (msg: Msg) (model: Model) -> Model * Cmd<Msg>`
+- `LocoDetected` with different loco calls `BindingPersistence.load()` which hits the real SQLite DB — tests still work because empty DB returns empty config
+- `PollValueReceived` serial side-effects only fire when `model.SerialPort` is `Some` with open port — tests are safe with default `None`
+- `Cmd.none` in Elmish is an empty list `[]`, so `List.isEmpty` check works correctly
+
+**Results:** All 118 tests passed (106 original + 12 new).
+
+**Commit:** 4e70b9a on `feature/elmish-sqlite`
+
+### Elmish + SQLite Comprehensive Test Suite (2026-02-25)
+**Date:** 2026-02-25  
+**Task:** Write full test coverage for Elmish migration, SQLite persistence, polling behavior, and test isolation fixes
+
+**Test Categories:**
+
+**Pure in-memory binding mutations (6 tests):**
+- `addBinding adds to empty BindingsConfig` — loco created, binding added
+- `addBinding idempotent` — duplicate binding not added twice
+- `removeBinding removes specific endpoint` — targeted removal
+- `removeBinding no-op for missing` — no crash on non-existent binding
+- `BindingsConfig load/save roundtrip` — serialization fidelity
+- `SQLite auto-migration from JSON` — detects JSON, hydrates DB, deletes JSON
+
+**Polling integration (4 tests):**
+- `PollingTick queries all active bindings` — correct Cmd dispatches
+- `PollingValueReceived sends on change` — serial output only on value change
+- `PollingValueReceived value="1" maps to send "s"` — serial protocol mapping
+- `PollingValueReceived value="0" maps to send "c"` — serial protocol mapping
+
+**Loco lifecycle (3 tests):**
+- `LocoDetected different loco resets polling state` — PollingValues cleared
+- `LocoDetected different loco reloads bindings` — fresh config loaded from DB
+- `LocoDetected same loco preserves polling values` — idempotent behavior
+
+**Test Isolation Fixes (implemented by Coordinator):**
+- Discovered: `addBinding`/`removeBinding` were calling `BindingPersistence.load()` during tests → broke isolation
+- **Solution:** Made binding mutations pure in-memory, DB flush is explicit (`flushBindingsToDb`)
+- **Result:** 1 failing test (`UnbindEndpoint removes binding`) recovered
+- **Impact:** Test suite now stable, no cross-test contamination
+
+**Status:** ✅ In progress, targeting completion this batch (106+ tests passing)

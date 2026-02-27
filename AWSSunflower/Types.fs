@@ -45,3 +45,29 @@ type TreeNodeState =
         Endpoints: TSWApi.Types.Endpoint list option
     }
 
+/// A bound endpoint for polling
+type BoundEndpoint = {
+    /// Relative path from CurrentDrivableActor (e.g., "BP_AWS_TPWS_Service")
+    NodePath: string
+    /// Endpoint name (e.g., "Property.AWS_SunflowerState")  
+    EndpointName: string
+    /// User-friendly label
+    Label: string
+}
+
+/// Configuration for a specific locomotive
+type LocoConfig = {
+    /// Object name from the API (e.g., "RVM_LNWR_Class350-2_DMS1_C_2147475158")
+    LocoName: string
+    /// Bound endpoints for this loco
+    BoundEndpoints: BoundEndpoint list
+}
+
+/// Persisted bindings configuration
+type BindingsConfig = {
+    /// Schema version for forward compatibility
+    Version: int
+    /// Per-loco configurations
+    Locos: LocoConfig list
+}
+

@@ -3,12 +3,10 @@
 open System
 open Avalonia
 open Avalonia.Controls
-open Avalonia.FuncUI
 open Avalonia.FuncUI.Types
 open Avalonia.FuncUI.DSL
 open Avalonia.Layout
 open Avalonia.Media
-open Avalonia.Threading
 
 module Components =
 

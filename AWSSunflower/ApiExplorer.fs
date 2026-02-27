@@ -3,37 +3,14 @@
 open System
 open System.Net.Http
 open Avalonia.Controls
-open Avalonia.FuncUI
 open Avalonia.FuncUI.DSL
 open Avalonia.FuncUI.Types
 open Avalonia.Layout
 open Avalonia.Media
-open Avalonia.Threading
 open TSWApi
-open TSWApi.Types
+open global.Elmish
 
 module ApiExplorer =
-
-    // ─── Minimal Elmish infrastructure ───
-
-    type Dispatch<'msg> = 'msg -> unit
-    type Sub<'msg> = Dispatch<'msg> -> unit
-    type Cmd<'msg> = Sub<'msg> list
-
-    module Cmd =
-        let none : Cmd<'msg> = []
-        let batch (cmds: Cmd<'msg> list) : Cmd<'msg> = List.concat cmds
-
-        module OfAsync =
-            let either (task: 'a -> Async<'b>) (arg: 'a) (ofSuccess: 'b -> 'msg) (ofError: exn -> 'msg) : Cmd<'msg> =
-                [ fun dispatch ->
-                    async {
-                        try
-                            let! result = task arg
-                            dispatch (ofSuccess result)
-                        with ex ->
-                            dispatch (ofError ex)
-                    } |> Async.Start ]
 
     // ─── Shared HttpClient ───
 
@@ -42,7 +19,12 @@ module ApiExplorer =
     // ─── Model ───
 
     type Model =
-        { BaseUrl: string
+        { // Serial port
+          SerialPorts: string list
+          SerialConnectionState: ConnectionState
+          SerialIsConnecting: bool
+          // API Explorer
+          BaseUrl: string
           CommKey: string
           ApiConfig: ApiConfig option
           ConnectionState: ApiConnectionState
@@ -51,7 +33,14 @@ module ApiExplorer =
           SelectedNode: TreeNodeState option
           EndpointValues: Map<string, string>
           LastResponseTime: TimeSpan option
-          SearchQuery: string }
+          SearchQuery: string
+          CurrentLoco: string option
+          BindingsConfig: BindingsConfig
+          PollingValues: Map<string, string>
+          IsPolling: bool
+          // Shared serial port
+          SerialPort: IO.Ports.SerialPort option
+          SerialPortName: string option }
 
     // ─── Messages ───
 
@@ -73,11 +62,38 @@ module ApiExplorer =
         | GetEndpointValue of path: string
         | EndpointValueReceived of path: string * value: string * elapsed: TimeSpan
         | ApiError of string
+        // Binding
+        | BindEndpoint of nodePath: string * endpointName: string
+        | UnbindEndpoint of nodePath: string * endpointName: string
+        // Loco detection
+        | DetectLoco
+        | LocoDetected of string
+        | LocoDetectError of string
+        // Polling
+        | StartPolling
+        | StopPolling
+        | PollingTick
+        | PollValueReceived of endpointKey: string * value: string
+        | PollError of string
+        // Serial (API Explorer internal)
+        | SetSerialPort of string option
+        | ConnectSerial
+        | DisconnectSerial
+        | SerialConnected of IO.Ports.SerialPort
+        | SerialError of string
+        // Serial tab (unified)
+        | PortsUpdated of string list
+        | ToggleSerialConnection
+        | SerialConnectResult of Result<IO.Ports.SerialPort, SerialError>
+        | SendSerialCommand of string
 
     // ─── Init ───
 
     let init () =
-        { BaseUrl = "http://localhost:31270"
+        { SerialPorts = []
+          SerialConnectionState = ConnectionState.Disconnected
+          SerialIsConnecting = false
+          BaseUrl = "http://localhost:31270"
           CommKey = ""
           ApiConfig = None
           ConnectionState = ApiConnectionState.Disconnected
@@ -86,15 +102,40 @@ module ApiExplorer =
           SelectedNode = None
           EndpointValues = Map.empty
           LastResponseTime = None
-          SearchQuery = "" }
+          SearchQuery = ""
+          CurrentLoco = None
+          BindingsConfig = BindingPersistence.load ()
+          PollingValues = Map.empty
+          IsPolling = false
+          SerialPort = None
+          SerialPortName = None }
 
     let private stripRootPrefix (path: string) =
         if not (isNull path) && path.StartsWith("Root/") then path.Substring(5) else path
+
+    /// Guard against CLR null strings from JSON deserialization
+    let private nullSafe (s: string) = if isNull s then "" else s
 
     let private effectiveName (n: TSWApi.Types.Node) =
         if not (System.String.IsNullOrEmpty n.NodeName) then n.NodeName
         elif not (System.String.IsNullOrEmpty n.Name) then n.Name
         else ""
+
+    /// Recursively map an API Node to a TreeNodeState, preserving nested children.
+    let rec private mapNodeToTreeState (parentPath: string) (n: TSWApi.Types.Node) : TreeNodeState =
+        let name = effectiveName n
+        let path =
+            if not (System.String.IsNullOrEmpty n.NodePath) then stripRootPrefix n.NodePath
+            else if parentPath = "" then name
+            else parentPath + "/" + name
+        let children =
+            match n.Nodes with
+            | Some nodes when nodes.Length > 0 ->
+                Some (nodes |> List.map (mapNodeToTreeState path))
+            | Some _ -> Some []
+            | None -> None
+        { Path = path; Name = name; IsExpanded = false
+          Children = children; Endpoints = n.Endpoints }
 
     // ─── Async commands ───
 
@@ -138,9 +179,7 @@ module ApiExplorer =
                         let nodes =
                             listResp.Nodes
                             |> Option.defaultValue []
-                            |> List.map (fun n ->
-                                { Path = stripRootPrefix n.NodePath; Name = effectiveName n; IsExpanded = false
-                                  Children = None; Endpoints = n.Endpoints })
+                            |> List.map (mapNodeToTreeState "")
                         return (nodes, elapsed)
                     | Error err -> return failwithf "List failed: %A" err
                 })
@@ -160,12 +199,7 @@ module ApiExplorer =
                         let children =
                             listResp.Nodes
                             |> Option.defaultValue []
-                            |> List.map (fun n ->
-                                let name = effectiveName n
-                                let path = if not (System.String.IsNullOrEmpty n.NodePath) then stripRootPrefix n.NodePath
-                                           else nodePath + "/" + name
-                                { Path = path; Name = name; IsExpanded = false
-                                  Children = None; Endpoints = n.Endpoints })
+                            |> List.map (mapNodeToTreeState nodePath)
                         return (nodePath, children, listResp.Endpoints, elapsed)
                     | Error err -> return failwithf "Expand failed: %A" err
                 })
@@ -183,15 +217,75 @@ module ApiExplorer =
                     match getResult with
                     | Ok getResp ->
                         let valueStr =
-                            getResp.Values
-                            |> Seq.map (fun kvp -> sprintf "%s: %O" kvp.Key kvp.Value)
-                            |> String.concat ", "
+                            if isNull (getResp.Values :> obj) || getResp.Values.Count = 0 then
+                                "(no values returned)"
+                            else
+                                getResp.Values
+                                |> Seq.map (fun kvp -> sprintf "%s: %O" kvp.Key kvp.Value)
+                                |> String.concat ", "
                         return (endpointPath, valueStr, elapsed)
                     | Error err -> return failwithf "Get failed: %A" err
                 })
             ()
             (fun (p, v, elapsed) -> EndpointValueReceived(p, v, elapsed))
             (fun ex -> ApiError ex.Message)
+
+    let private detectLocoCmd (config: ApiConfig) =
+        Cmd.OfAsync.either
+            (fun () ->
+                async {
+                    let! getResult = TSWApi.ApiClient.getValue httpClient config "CurrentDrivableActor.ObjectName"
+                    match getResult with
+                    | Ok getResp ->
+                        if isNull (getResp.Values :> obj) || getResp.Values.Count = 0 then
+                            return failwith "No ObjectName returned"
+                        else
+                            let name = getResp.Values.["ObjectName"] |> string
+                            return name
+                    | Error err -> return failwithf "Detect loco failed: %A" err
+                })
+            ()
+            LocoDetected
+            (fun ex -> LocoDetectError ex.Message)
+
+    let private pollEndpointsCmd (config: ApiConfig) (endpoints: BoundEndpoint list) =
+        let cmds =
+            endpoints |> List.map (fun ep ->
+                Cmd.OfAsync.either
+                    (fun () ->
+                        async {
+                            let getPath = sprintf "%s.%s" ep.NodePath ep.EndpointName
+                            let! getResult = TSWApi.ApiClient.getValue httpClient config getPath
+                            match getResult with
+                            | Ok getResp ->
+                                let valueStr =
+                                    if isNull (getResp.Values :> obj) || getResp.Values.Count = 0 then
+                                        "(no value)"
+                                    else
+                                        getResp.Values
+                                        |> Seq.map (fun kvp -> sprintf "%O" kvp.Value)
+                                        |> String.concat ", "
+                                let key = sprintf "%s.%s" ep.NodePath ep.EndpointName
+                                return (key, valueStr)
+                            | Error err -> return failwithf "Poll failed: %A" err
+                        })
+                    ()
+                    PollValueReceived
+                    (fun ex -> PollError ex.Message))
+        Cmd.batch cmds
+
+    let private connectSerialCmd (portName: string) =
+        Cmd.OfAsync.either
+            (fun () ->
+                async {
+                    let! result = SerialPortModule.connectAsync portName 9600
+                    match result with
+                    | Ok port -> return port
+                    | Error err -> return failwithf "Serial connect failed: %A" err
+                })
+            ()
+            SerialConnected
+            (fun ex -> SerialError ex.Message)
 
     // ─── Tree helpers ───
 
@@ -235,7 +329,9 @@ module ApiExplorer =
             { model with
                 ApiConfig = None; ConnectionState = ApiConnectionState.Disconnected
                 TreeRoot = []; SelectedNode = None
-                EndpointValues = Map.empty; LastResponseTime = None },
+                EndpointValues = Map.empty; LastResponseTime = None
+                CurrentLoco = None; IsPolling = false
+                PollingValues = Map.empty },
             Cmd.none
 
         | RootNodesLoaded (nodes, elapsed) ->
@@ -284,6 +380,165 @@ module ApiExplorer =
 
         | ApiError errorMsg ->
             { model with ConnectionState = ApiConnectionState.Error errorMsg }, Cmd.none
+
+        | BindEndpoint (nodePath, endpointName) ->
+            match model.CurrentLoco with
+            | Some locoName ->
+                let binding = { NodePath = nodePath; EndpointName = endpointName; Label = sprintf "%s.%s" nodePath endpointName }
+                let newConfig = BindingPersistence.addBinding model.BindingsConfig locoName binding
+                BindingPersistence.save newConfig
+                let newModel = { model with BindingsConfig = newConfig; IsPolling = true }
+                match model.ApiConfig with
+                | Some config -> newModel, pollEndpointsCmd config [binding]
+                | None -> newModel, Cmd.none
+            | None -> model, Cmd.none
+
+        | UnbindEndpoint (nodePath, endpointName) ->
+            match model.CurrentLoco with
+            | Some locoName ->
+                let newConfig = BindingPersistence.removeBinding model.BindingsConfig locoName nodePath endpointName
+                BindingPersistence.save newConfig
+                let key = sprintf "%s.%s" nodePath endpointName
+                { model with
+                    BindingsConfig = newConfig
+                    PollingValues = Map.remove key model.PollingValues },
+                Cmd.ofMsg (SendSerialCommand "c")
+            | None -> model, Cmd.none
+
+        | DetectLoco ->
+            match model.ApiConfig with
+            | Some config -> model, detectLocoCmd config
+            | None -> model, Cmd.none
+
+        | LocoDetected locoName ->
+            if model.CurrentLoco = Some locoName then
+                model, Cmd.none
+            else
+                let newConfig = BindingPersistence.load ()
+                let hasBindings =
+                    newConfig.Locos
+                    |> List.tryFind (fun l -> l.LocoName = locoName)
+                    |> Option.map (fun l -> l.BoundEndpoints.Length > 0)
+                    |> Option.defaultValue false
+                { model with
+                    CurrentLoco = Some locoName
+                    BindingsConfig = newConfig
+                    PollingValues = Map.empty
+                    IsPolling = hasBindings
+                    TreeRoot = []
+                    SelectedNode = None
+                    EndpointValues = Map.empty },
+                Cmd.batch [
+                    match model.ApiConfig with
+                    | Some config -> loadRootNodesCmd config
+                    | None -> Cmd.none
+                    Cmd.ofMsg (SendSerialCommand "c")
+                ]
+
+        | LocoDetectError _ ->
+            model, Cmd.none
+
+        | StartPolling ->
+            { model with IsPolling = true }, Cmd.none
+
+        | StopPolling ->
+            { model with IsPolling = false }, Cmd.none
+
+        | PollingTick ->
+            match model.ApiConfig, model.CurrentLoco with
+            | Some config, Some locoName ->
+                let locoBindings =
+                    model.BindingsConfig.Locos
+                    |> List.tryFind (fun l -> l.LocoName = locoName)
+                    |> Option.map (fun l -> l.BoundEndpoints)
+                    |> Option.defaultValue []
+                if locoBindings.IsEmpty then model, Cmd.none
+                else model, pollEndpointsCmd config locoBindings
+            | _ -> model, Cmd.none
+
+        | PollValueReceived (key, value) ->
+            let changed = Map.tryFind key model.PollingValues <> Some value
+            let newModel = { model with PollingValues = Map.add key value model.PollingValues }
+            if changed then
+                match model.SerialPort with
+                | Some port when port.IsOpen ->
+                    let serialCmd =
+                        if value.Contains("1") then "s"
+                        elif value.Contains("0") then "c"
+                        else ""
+                    if serialCmd <> "" then
+                        async {
+                            let! _ = SerialPortModule.sendAsync port serialCmd
+                            ()
+                        } |> Async.Start
+                | _ -> ()
+            newModel, Cmd.none
+
+        | PollError _ ->
+            model, Cmd.none
+
+        | SetSerialPort portName ->
+            { model with SerialPortName = portName }, Cmd.none
+
+        | ConnectSerial ->
+            match model.SerialPortName with
+            | Some name -> model, connectSerialCmd name
+            | None -> model, Cmd.none
+
+        | DisconnectSerial ->
+            SerialPortModule.disconnect model.SerialPort
+            { model with SerialPort = None }, Cmd.none
+
+        | SerialConnected port ->
+            { model with SerialPort = Some port }, Cmd.none
+
+        | SerialError _ ->
+            model, Cmd.none
+
+        | PortsUpdated ports ->
+            { model with SerialPorts = ports }, Cmd.none
+
+        | ToggleSerialConnection ->
+            match model.SerialConnectionState with
+            | ConnectionState.Connected _ ->
+                SerialPortModule.disconnect model.SerialPort
+                { model with
+                    SerialPort = None
+                    SerialConnectionState = ConnectionState.Disconnected
+                    SerialIsConnecting = false }, Cmd.none
+            | _ ->
+                match model.SerialPortName with
+                | Some portName ->
+                    { model with SerialIsConnecting = true; SerialConnectionState = ConnectionState.Connecting },
+                    Cmd.OfAsync.either
+                        (fun () -> SerialPortModule.connectAsync portName 9600)
+                        ()
+                        (fun result -> SerialConnectResult result)
+                        (fun ex -> SerialConnectResult (Error (OpenFailed ex.Message)))
+                | None -> model, Cmd.none
+
+        | SerialConnectResult result ->
+            match result with
+            | Ok port ->
+                let portName = model.SerialPortName |> Option.defaultValue ""
+                { model with
+                    SerialPort = Some port
+                    SerialConnectionState = ConnectionState.Connected portName
+                    SerialIsConnecting = false }, Cmd.none
+            | Error error ->
+                { model with
+                    SerialConnectionState = ConnectionState.Error error
+                    SerialIsConnecting = false }, Cmd.none
+
+        | SendSerialCommand cmd ->
+            match model.SerialPort with
+            | Some port when port.IsOpen ->
+                async {
+                    let! _ = SerialPortModule.sendAsync port cmd
+                    ()
+                } |> Async.Start
+                model, Cmd.none
+            | _ -> model, Cmd.none
 
     // ─── View ───
 
@@ -368,6 +623,15 @@ module ApiExplorer =
                                 TextBlock.fontSize 11.0
                             ]
                         | None -> ()
+
+                        match model.CurrentLoco with
+                        | Some loco ->
+                            TextBlock.create [
+                                TextBlock.text (sprintf "Loco: %s" loco)
+                                TextBlock.fontSize 11.0
+                                TextBlock.foreground (SolidColorBrush(Color.Parse("#55AAFF")))
+                            ]
+                        | None -> ()
                     ]
                 ]
             )
@@ -430,10 +694,10 @@ module ApiExplorer =
             Border.borderBrush (SolidColorBrush(Color.Parse("#3A3A3A")))
             Border.borderThickness (0.0, 0.0, 1.0, 0.0)
             Border.child (
-                StackPanel.create [
-                    StackPanel.orientation Orientation.Vertical
-                    StackPanel.children [
+                DockPanel.create [
+                    DockPanel.children [
                         TextBox.create [
+                            TextBox.dock Dock.Top
                             TextBox.watermark "Search nodes..."
                             TextBox.text model.SearchQuery
                             TextBox.onTextChanged (SetSearchQuery >> dispatch)
@@ -474,16 +738,18 @@ module ApiExplorer =
                                 ]
                             ]
                         | Some node ->
-                            match node.Endpoints with
+                            // Guard against CLR null from JSON deserialization
+                            let endpoints = node.Endpoints |> Option.bind (fun eps -> if isNull (eps :> obj) then None else Some eps)
+                            match endpoints with
                             | Some endpoints when endpoints.Length > 0 ->
                                 [
                                     TextBlock.create [
-                                        TextBlock.text (sprintf "Node: %s" node.Name)
+                                        TextBlock.text (sprintf "Node: %s" (nullSafe node.Name))
                                         TextBlock.fontSize 16.0
                                         TextBlock.fontWeight FontWeight.Bold
                                     ]
                                     TextBlock.create [
-                                        TextBlock.text (sprintf "Path: %s" node.Path)
+                                        TextBlock.text (sprintf "Path: %s" (nullSafe node.Path))
                                         TextBlock.fontSize 11.0
                                         TextBlock.foreground (SolidColorBrush Colors.Gray)
                                     ]
@@ -495,6 +761,8 @@ module ApiExplorer =
                                     ]
 
                                     yield! endpoints |> List.map (fun ep ->
+                                        let epName = nullSafe ep.Name
+                                        let nodePath = nullSafe node.Path
                                         StackPanel.create [
                                             StackPanel.orientation Orientation.Vertical
                                             StackPanel.margin (0.0, 5.0, 0.0, 5.0)
@@ -504,7 +772,7 @@ module ApiExplorer =
                                                     StackPanel.spacing 10.0
                                                     StackPanel.children [
                                                         TextBlock.create [
-                                                            TextBlock.text ep.Name
+                                                            TextBlock.text epName
                                                             TextBlock.fontSize 12.0
                                                             TextBlock.fontWeight FontWeight.SemiBold
                                                         ]
@@ -517,15 +785,24 @@ module ApiExplorer =
                                                         Button.create [
                                                             Button.content "Get Value"
                                                             Button.onClick (fun _ ->
-                                                                dispatch (GetEndpointValue (sprintf "%s/%s" node.Path ep.Name))
+                                                                dispatch (GetEndpointValue (sprintf "%s.%s" nodePath epName))
                                                             )
                                                             Button.fontSize 10.0
                                                             Button.padding (5.0, 2.0)
                                                         ]
+                                                        Button.create [
+                                                            Button.content "📌 Bind"
+                                                            Button.onClick (fun _ ->
+                                                                dispatch (BindEndpoint (nodePath, epName))
+                                                            )
+                                                            Button.fontSize 10.0
+                                                            Button.padding (5.0, 2.0)
+                                                            Button.isEnabled model.CurrentLoco.IsSome
+                                                        ]
                                                     ]
                                                 ]
 
-                                                let fullPath = sprintf "%s/%s" node.Path ep.Name
+                                                let fullPath = sprintf "%s.%s" nodePath epName
                                                 match Map.tryFind fullPath model.EndpointValues with
                                                 | Some value ->
                                                     TextBox.create [
@@ -557,29 +834,235 @@ module ApiExplorer =
             )
         ]
 
-    // ─── Component host with MVU dispatch loop ───
-
-    let view () =
-        Component(fun ctx ->
-            let model = ctx.useState (init ())
-
-            let rec dispatch (msg: Msg) =
-                Dispatcher.UIThread.Post(Action(fun () ->
-                    try
-                        let newModel, cmds = update msg model.Current
-                        model.Set newModel
-                        for sub in cmds do
-                            sub dispatch
-                    with ex ->
-                        eprintfn "[MVU] Update error for %A: %s" msg ex.Message
-                ))
-
-            DockPanel.create [
-                DockPanel.children [
-                    statusBar model.Current
-                    connectionPanel model.Current dispatch
-                    treeBrowserPanel model.Current dispatch
-                    endpointViewerPanel model.Current dispatch
+    let private bindingsPanel (model: Model) (dispatch: Dispatch<Msg>) =
+        let currentBindings =
+            match model.CurrentLoco with
+            | Some locoName ->
+                model.BindingsConfig.Locos
+                |> List.tryFind (fun l -> l.LocoName = locoName)
+                |> Option.map (fun l -> l.BoundEndpoints)
+                |> Option.defaultValue []
+            | None -> []
+        Border.create [
+            Border.dock Dock.Bottom
+            Border.borderBrush (SolidColorBrush(Color.Parse("#3A3A3A")))
+            Border.borderThickness (0.0, 1.0, 0.0, 0.0)
+            Border.maxHeight 200.0
+            Border.child (
+                DockPanel.create [
+                    DockPanel.children [
+                        StackPanel.create [
+                            StackPanel.dock Dock.Top
+                            StackPanel.orientation Orientation.Horizontal
+                            StackPanel.margin (10.0, 5.0)
+                            StackPanel.spacing 10.0
+                            StackPanel.children [
+                                TextBlock.create [
+                                    TextBlock.text (sprintf "Active Bindings (%d)" currentBindings.Length)
+                                    TextBlock.fontSize 12.0
+                                    TextBlock.fontWeight FontWeight.Bold
+                                ]
+                                Button.create [
+                                    Button.content (if model.IsPolling then "⏸ Pause" else "▶ Poll")
+                                    Button.onClick (fun _ ->
+                                        if model.IsPolling then dispatch StopPolling
+                                        else dispatch StartPolling
+                                    )
+                                    Button.fontSize 10.0
+                                    Button.padding (5.0, 2.0)
+                                    Button.isEnabled (currentBindings.Length > 0)
+                                ]
+                            ]
+                        ]
+                        ScrollViewer.create [
+                            ScrollViewer.content (
+                                StackPanel.create [
+                                    StackPanel.orientation Orientation.Vertical
+                                    StackPanel.margin (10.0, 0.0)
+                                    StackPanel.spacing 3.0
+                                    StackPanel.children (
+                                        if currentBindings.IsEmpty then
+                                            [
+                                                TextBlock.create [
+                                                    TextBlock.text "No bindings. Use 📌 Bind on endpoints above."
+                                                    TextBlock.fontSize 11.0
+                                                    TextBlock.foreground (SolidColorBrush Colors.Gray)
+                                                ]
+                                            ]
+                                        else
+                                            currentBindings |> List.map (fun b ->
+                                                let key = sprintf "%s.%s" b.NodePath b.EndpointName
+                                                let value = Map.tryFind key model.PollingValues |> Option.defaultValue "—"
+                                                StackPanel.create [
+                                                    StackPanel.orientation Orientation.Horizontal
+                                                    StackPanel.spacing 8.0
+                                                    StackPanel.children [
+                                                        TextBlock.create [
+                                                            TextBlock.text (sprintf "%s = %s" b.Label value)
+                                                            TextBlock.fontSize 11.0
+                                                            TextBlock.verticalAlignment VerticalAlignment.Center
+                                                            TextBlock.width 400.0
+                                                        ]
+                                                        Button.create [
+                                                            Button.content "✕"
+                                                            Button.onClick (fun _ ->
+                                                                dispatch (UnbindEndpoint (b.NodePath, b.EndpointName))
+                                                            )
+                                                            Button.fontSize 10.0
+                                                            Button.padding (4.0, 1.0)
+                                                        ]
+                                                    ]
+                                                ] :> IView
+                                            )
+                                    )
+                                ]
+                            )
+                        ]
+                    ]
                 ]
+            )
+        ]
+
+    // ─── Serial Port Side Panel ───
+
+    let private serialPortPanel (model: Model) (dispatch: Dispatch<Msg>) =
+        Border.create [
+            Border.dock Dock.Right
+            Border.width 200.0
+            Border.background (SolidColorBrush(Color.Parse("#2A2A2A")))
+            Border.borderBrush (SolidColorBrush(Color.Parse("#3A3A3A")))
+            Border.borderThickness (1.0, 0.0, 0.0, 0.0)
+            Border.padding 10.0
+            Border.child (
+                StackPanel.create [
+                    StackPanel.orientation Orientation.Vertical
+                    StackPanel.spacing 8.0
+                    StackPanel.children [
+                        // Header
+                        TextBlock.create [
+                            TextBlock.text "🔌 Serial Port"
+                            TextBlock.fontSize 14.0
+                            TextBlock.fontWeight FontWeight.Bold
+                            TextBlock.margin (0.0, 0.0, 0.0, 4.0)
+                        ]
+
+                        // COM port dropdown
+                        ComboBox.create [
+                            ComboBox.placeholderText "Select port..."
+                            ComboBox.horizontalAlignment HorizontalAlignment.Stretch
+                            ComboBox.dataItems model.SerialPorts
+                            ComboBox.selectedItem (model.SerialPortName |> Option.defaultValue "")
+                            ComboBox.onSelectedItemChanged (fun item ->
+                                let portName = string item
+                                if String.IsNullOrEmpty portName then dispatch (SetSerialPort None)
+                                else dispatch (SetSerialPort (Some portName))
+                            )
+                            ComboBox.fontSize 11.0
+                        ]
+
+                        // Connect/Disconnect button
+                        Button.create [
+                            Button.content (
+                                match model.SerialConnectionState with
+                                | ConnectionState.Connected _ -> "Disconnect"
+                                | ConnectionState.Connecting -> "Connecting..."
+                                | _ -> "Connect"
+                            )
+                            Button.onClick (fun _ -> dispatch ToggleSerialConnection)
+                            Button.isEnabled (
+                                match model.SerialConnectionState with
+                                | ConnectionState.Connecting -> false
+                                | _ -> model.SerialPortName.IsSome || (match model.SerialConnectionState with ConnectionState.Connected _ -> true | _ -> false)
+                            )
+                            Button.horizontalAlignment HorizontalAlignment.Stretch
+                            Button.fontSize 11.0
+                            Button.foreground (
+                                match model.SerialConnectionState with
+                                | ConnectionState.Connected _ -> SolidColorBrush(Color.Parse("#00AA00"))
+                                | ConnectionState.Error _ -> SolidColorBrush(Color.Parse("#FF5555"))
+                                | _ -> SolidColorBrush Colors.White
+                            )
+                        ]
+
+                        // Status indicator
+                        StackPanel.create [
+                            StackPanel.orientation Orientation.Horizontal
+                            StackPanel.spacing 6.0
+                            StackPanel.children [
+                                TextBlock.create [
+                                    TextBlock.text "●"
+                                    TextBlock.fontSize 10.0
+                                    TextBlock.foreground (
+                                        match model.SerialConnectionState with
+                                        | ConnectionState.Connected _ -> SolidColorBrush(Color.Parse("#00AA00"))
+                                        | ConnectionState.Error _ -> SolidColorBrush(Color.Parse("#FF5555"))
+                                        | ConnectionState.Connecting -> SolidColorBrush(Color.Parse("#FFAA00"))
+                                        | _ -> SolidColorBrush Colors.Gray
+                                    )
+                                ]
+                                TextBlock.create [
+                                    TextBlock.text (
+                                        match model.SerialConnectionState with
+                                        | ConnectionState.Connected p -> p
+                                        | ConnectionState.Connecting -> "Connecting..."
+                                        | ConnectionState.Disconnected -> "Not connected"
+                                        | ConnectionState.Error (PortInUse p) -> sprintf "%s in use" p
+                                        | ConnectionState.Error (PortNotFound p) -> sprintf "%s missing" p
+                                        | ConnectionState.Error (OpenFailed _) -> "Open failed"
+                                        | ConnectionState.Error (SendFailed _) -> "Send failed"
+                                        | ConnectionState.Error Disconnected -> "Disconnected"
+                                    )
+                                    TextBlock.fontSize 10.0
+                                    TextBlock.foreground (SolidColorBrush Colors.Gray)
+                                ]
+                            ]
+                        ]
+
+                        // Separator
+                        Border.create [
+                            Border.height 1.0
+                            Border.background (SolidColorBrush(Color.Parse("#3A3A3A")))
+                            Border.margin (0.0, 4.0)
+                        ]
+
+                        // Sunflower buttons
+                        Button.create [
+                            Button.content "🌻 Set Sunflower"
+                            Button.onClick (fun _ -> dispatch (SendSerialCommand "s"))
+                            Button.isEnabled (match model.SerialConnectionState with ConnectionState.Connected _ -> true | _ -> false)
+                            Button.horizontalAlignment HorizontalAlignment.Stretch
+                            Button.fontSize 11.0
+                            Button.padding (5.0, 6.0)
+                        ]
+                        Button.create [
+                            Button.content "✕ Clear Sunflower"
+                            Button.onClick (fun _ -> dispatch (SendSerialCommand "c"))
+                            Button.isEnabled (match model.SerialConnectionState with ConnectionState.Connected _ -> true | _ -> false)
+                            Button.horizontalAlignment HorizontalAlignment.Stretch
+                            Button.fontSize 11.0
+                            Button.padding (5.0, 6.0)
+                        ]
+                    ]
+                ]
+            )
+        ]
+
+    // ─── Public unified view (called from Program.fs) ───
+
+    let mainView (model: Model) (dispatch: Dispatch<Msg>) =
+        DockPanel.create [
+            DockPanel.children [
+                // Right: Serial port panel
+                serialPortPanel model dispatch
+                // Bottom: Status bar
+                statusBar model
+                // Bottom (above status): Bindings panel
+                bindingsPanel model dispatch
+                // Top: Connection panel
+                connectionPanel model dispatch
+                // Left: Tree browser
+                treeBrowserPanel model dispatch
+                // Center: Endpoint viewer (fills remaining)
+                endpointViewerPanel model dispatch
             ]
-        )
+        ]

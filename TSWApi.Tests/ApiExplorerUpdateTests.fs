@@ -264,3 +264,432 @@ let ``SetSearchQuery with empty string clears search`` () =
 let ``Initial model has empty SearchQuery`` () =
     let model = init ()
     Assert.Equal("", model.SearchQuery)
+
+// ─── Binding ───
+
+let connectedWithLoco () =
+    { connectedModel () with
+        CurrentLoco = Some "TestLoco_123"
+        BindingsConfig = { Version = 1; Locos = [] } }
+
+[<Fact>]
+let ``BindEndpoint adds binding when loco is known`` () =
+    let model = connectedWithLoco ()
+    let newModel, _ = update (BindEndpoint ("CurrentDrivableActor/BP_AWS", "Property.Sunflower")) model
+    let loco = newModel.BindingsConfig.Locos |> List.find (fun l -> l.LocoName = "TestLoco_123")
+    Assert.Equal(1, loco.BoundEndpoints.Length)
+    Assert.Equal("CurrentDrivableActor/BP_AWS", loco.BoundEndpoints.[0].NodePath)
+    Assert.Equal("Property.Sunflower", loco.BoundEndpoints.[0].EndpointName)
+    Assert.True(newModel.IsPolling)
+
+[<Fact>]
+let ``BindEndpoint does nothing when no loco detected`` () =
+    let model = { connectedModel () with CurrentLoco = None; BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, _ = update (BindEndpoint ("SomePath", "SomeEndpoint")) model
+    Assert.True(newModel.BindingsConfig.Locos.IsEmpty)
+
+[<Fact>]
+let ``UnbindEndpoint removes binding`` () =
+    let model =
+        { connectedWithLoco () with
+            BindingsConfig =
+                { Version = 1
+                  Locos = [ { LocoName = "TestLoco_123"
+                              BoundEndpoints = [ { NodePath = "A"; EndpointName = "B"; Label = "A.B" }
+                                                 { NodePath = "C"; EndpointName = "D"; Label = "C.D" } ] } ] } }
+    let newModel, _ = update (UnbindEndpoint ("A", "B")) model
+    let loco = newModel.BindingsConfig.Locos |> List.find (fun l -> l.LocoName = "TestLoco_123")
+    Assert.Equal(1, loco.BoundEndpoints.Length)
+    Assert.Equal("C", loco.BoundEndpoints.[0].NodePath)
+
+// ─── Loco Detection ───
+
+[<Fact>]
+let ``LocoDetected sets CurrentLoco`` () =
+    let model = connectedModel ()
+    let newModel, _ = update (LocoDetected "RVM_Class350_ABC") model
+    Assert.Equal(Some "RVM_Class350_ABC", newModel.CurrentLoco)
+
+[<Fact>]
+let ``LocoDetected same loco is no-op`` () =
+    let model = { connectedModel () with CurrentLoco = Some "SameLoco"; PollingValues = Map.ofList [("k", "v")] }
+    let newModel, _ = update (LocoDetected "SameLoco") model
+    Assert.Equal(Some "SameLoco", newModel.CurrentLoco)
+    Assert.Equal(Some "v", Map.tryFind "k" newModel.PollingValues)
+
+[<Fact>]
+let ``LocoDetected different loco clears PollingValues`` () =
+    let model = { connectedModel () with CurrentLoco = Some "OldLoco"; PollingValues = Map.ofList [("k", "v")]; IsPolling = true }
+    let newModel, _ = update (LocoDetected "NewLoco") model
+    Assert.Equal(Some "NewLoco", newModel.CurrentLoco)
+    Assert.True(newModel.PollingValues.IsEmpty)
+
+[<Fact>]
+let ``LocoDetectError does not change model`` () =
+    let model = connectedModel ()
+    let newModel, _ = update (LocoDetectError "some error") model
+    Assert.True(newModel.CurrentLoco.IsNone)
+
+// ─── Polling ───
+
+[<Fact>]
+let ``StartPolling sets IsPolling`` () =
+    let model = connectedModel ()
+    let newModel, _ = update StartPolling model
+    Assert.True(newModel.IsPolling)
+
+[<Fact>]
+let ``StopPolling clears IsPolling`` () =
+    let model = { connectedModel () with IsPolling = true }
+    let newModel, _ = update StopPolling model
+    Assert.False(newModel.IsPolling)
+
+[<Fact>]
+let ``PollValueReceived updates PollingValues`` () =
+    let model = connectedModel ()
+    let newModel, _ = update (PollValueReceived ("key1", "42")) model
+    Assert.Equal(Some "42", Map.tryFind "key1" newModel.PollingValues)
+
+[<Fact>]
+let ``PollingTick with no bindings produces no command`` () =
+    let model = { connectedWithLoco () with IsPolling = true }
+    let _, cmd = update PollingTick model
+    Assert.True(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``PollingTick with bindings produces command`` () =
+    let model =
+        { connectedWithLoco () with
+            IsPolling = true
+            BindingsConfig =
+                { Version = 1
+                  Locos = [ { LocoName = "TestLoco_123"
+                              BoundEndpoints = [ { NodePath = "A"; EndpointName = "B"; Label = "A.B" } ] } ] } }
+    let _, cmd = update PollingTick model
+    Assert.False(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``PollingTick without config produces no command`` () =
+    let model = { init () with CurrentLoco = Some "Loco"; IsPolling = true }
+    let _, cmd = update PollingTick model
+    Assert.True(cmd |> List.isEmpty)
+
+// ─── Serial ───
+
+[<Fact>]
+let ``SetSerialPort updates SerialPortName`` () =
+    let model = connectedModel ()
+    let newModel, _ = update (SetSerialPort (Some "COM3")) model
+    Assert.Equal(Some "COM3", newModel.SerialPortName)
+
+[<Fact>]
+let ``DisconnectSerial clears SerialPort`` () =
+    let model = connectedModel ()
+    let newModel, _ = update DisconnectSerial model
+    Assert.True(newModel.SerialPort.IsNone)
+
+// ─── Init with new fields ───
+
+[<Fact>]
+let ``init has no CurrentLoco`` () =
+    let model = init ()
+    Assert.True(model.CurrentLoco.IsNone)
+
+[<Fact>]
+let ``init has polling disabled`` () =
+    let model = init ()
+    Assert.False(model.IsPolling)
+    Assert.True(model.PollingValues.IsEmpty)
+
+[<Fact>]
+let ``init has no serial port`` () =
+    let model = init ()
+    Assert.True(model.SerialPort.IsNone)
+    Assert.True(model.SerialPortName.IsNone)
+
+[<Fact>]
+let ``Disconnect clears binding state`` () =
+    let model =
+        { connectedWithLoco () with
+            IsPolling = true
+            PollingValues = Map.ofList [("a", "1")] }
+    let newModel, _ = update Disconnect model
+    Assert.True(newModel.CurrentLoco.IsNone)
+    Assert.False(newModel.IsPolling)
+    Assert.True(newModel.PollingValues.IsEmpty)
+    Assert.True(newModel.SerialPort.IsNone)
+
+// ─── Loco change behavior ───
+
+[<Fact>]
+let ``LocoDetected with different loco clears polling values`` () =
+    let model =
+        { connectedModel () with
+            CurrentLoco = Some "LocoA"
+            PollingValues = Map.ofList [("k1", "v1"); ("k2", "v2")]
+            BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, _ = update (LocoDetected "LocoB") model
+    Assert.Equal(Some "LocoB", newModel.CurrentLoco)
+    Assert.True(newModel.PollingValues.IsEmpty)
+
+[<Fact>]
+let ``LocoDetected with different loco reloads bindings config`` () =
+    let model =
+        { connectedModel () with
+            CurrentLoco = Some "LocoA"
+            BindingsConfig = { Version = 1; Locos = [{ LocoName = "LocoA"; BoundEndpoints = [{ NodePath = "A"; EndpointName = "B"; Label = "A.B" }] }] } }
+    let newModel, _ = update (LocoDetected "LocoB") model
+    Assert.Equal(Some "LocoB", newModel.CurrentLoco)
+    // Config is reloaded from persistence — for a new loco with no saved bindings, loco won't appear
+    let locoBindings =
+        newModel.BindingsConfig.Locos
+        |> List.tryFind (fun l -> l.LocoName = "LocoB")
+        |> Option.map (fun l -> l.BoundEndpoints)
+        |> Option.defaultValue []
+    Assert.True(locoBindings.IsEmpty)
+
+[<Fact>]
+let ``LocoDetected with same loco does not clear polling values`` () =
+    let model =
+        { connectedModel () with
+            CurrentLoco = Some "SameLoco"
+            PollingValues = Map.ofList [("k1", "v1"); ("k2", "v2")]
+            BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, _ = update (LocoDetected "SameLoco") model
+    Assert.Equal(Some "SameLoco", newModel.CurrentLoco)
+    Assert.Equal(2, newModel.PollingValues.Count)
+    Assert.Equal(Some "v1", Map.tryFind "k1" newModel.PollingValues)
+    Assert.Equal(Some "v2", Map.tryFind "k2" newModel.PollingValues)
+
+// ─── Serial value mapping ───
+
+[<Fact>]
+let ``PollValueReceived with value containing 1 updates PollingValues`` () =
+    let model = { connectedModel () with PollingValues = Map.empty; BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, cmd = update (PollValueReceived ("endpoint.key", "Value: 1")) model
+    Assert.Equal(Some "Value: 1", Map.tryFind "endpoint.key" newModel.PollingValues)
+    Assert.True(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``PollValueReceived with value containing 0 updates PollingValues`` () =
+    let model = { connectedModel () with PollingValues = Map.empty; BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, cmd = update (PollValueReceived ("endpoint.key", "Value: 0")) model
+    Assert.Equal(Some "Value: 0", Map.tryFind "endpoint.key" newModel.PollingValues)
+    Assert.True(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``PollValueReceived with unchanged value does not trigger change`` () =
+    let model =
+        { connectedModel () with
+            PollingValues = Map.ofList [("endpoint.key", "42")]
+            BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, cmd = update (PollValueReceived ("endpoint.key", "42")) model
+    Assert.Equal(Some "42", Map.tryFind "endpoint.key" newModel.PollingValues)
+    Assert.True(cmd |> List.isEmpty)
+
+// ─── BindEndpoint with immediate poll ───
+
+[<Fact>]
+let ``BindEndpoint returns poll command when api config present`` () =
+    let model = connectedWithLoco ()
+    let _, cmd = update (BindEndpoint ("NodePath", "EndpointName")) model
+    Assert.False(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``BindEndpoint returns no command when api config absent`` () =
+    let model =
+        { init () with
+            CurrentLoco = Some "TestLoco_123"
+            ApiConfig = None
+            BindingsConfig = { Version = 1; Locos = [] } }
+    let _, cmd = update (BindEndpoint ("NodePath", "EndpointName")) model
+    Assert.True(cmd |> List.isEmpty)
+
+// ─── Pure in-memory persistence functions ───
+
+open CounterApp.BindingPersistence
+
+[<Fact>]
+let ``addBinding adds to empty config`` () =
+    let config = { Version = 1; Locos = [] }
+    let binding = { NodePath = "A"; EndpointName = "B"; Label = "A.B" }
+    let result = addBinding config "TestLoco" binding
+    let loco = result.Locos |> List.find (fun l -> l.LocoName = "TestLoco")
+    Assert.Equal(1, loco.BoundEndpoints.Length)
+    Assert.Equal("A", loco.BoundEndpoints.[0].NodePath)
+    Assert.Equal("B", loco.BoundEndpoints.[0].EndpointName)
+
+[<Fact>]
+let ``addBinding does not duplicate`` () =
+    let config = { Version = 1; Locos = [] }
+    let binding = { NodePath = "A"; EndpointName = "B"; Label = "A.B" }
+    let once = addBinding config "TestLoco" binding
+    let twice = addBinding once "TestLoco" binding
+    let loco = twice.Locos |> List.find (fun l -> l.LocoName = "TestLoco")
+    Assert.Equal(1, loco.BoundEndpoints.Length)
+
+[<Fact>]
+let ``removeBinding removes specific endpoint`` () =
+    let config =
+        { Version = 1
+          Locos = [{ LocoName = "TestLoco"
+                     BoundEndpoints = [{ NodePath = "A"; EndpointName = "B"; Label = "A.B" }
+                                       { NodePath = "C"; EndpointName = "D"; Label = "C.D" }] }] }
+    let result = removeBinding config "TestLoco" "A" "B"
+    let loco = result.Locos |> List.find (fun l -> l.LocoName = "TestLoco")
+    Assert.Equal(1, loco.BoundEndpoints.Length)
+    Assert.Equal("C", loco.BoundEndpoints.[0].NodePath)
+
+[<Fact>]
+let ``removeBinding is no-op for missing endpoint`` () =
+    let config =
+        { Version = 1
+          Locos = [{ LocoName = "TestLoco"
+                     BoundEndpoints = [{ NodePath = "A"; EndpointName = "B"; Label = "A.B" }] }] }
+    let result = removeBinding config "TestLoco" "X" "Y"
+    let loco = result.Locos |> List.find (fun l -> l.LocoName = "TestLoco")
+    Assert.Equal(1, loco.BoundEndpoints.Length)
+    Assert.Equal("A", loco.BoundEndpoints.[0].NodePath)
+
+[<Fact>]
+let ``Tree expansion works at 5 levels deep`` () =
+    // Level 0: Root with one node
+    let root = makeNode "CF" "CurrentFormation"
+    let initial = { connectedModel () with TreeRoot = [ root ] }
+
+    // Level 1: Expand CF -> get child "0"
+    let ch1 = [ makeNode "CF/0" "0" ]
+    let m1, _ = update (NodeExpanded("CF", ch1, None, testElapsed)) initial
+    Assert.True(m1.TreeRoot.[0].IsExpanded)
+    Assert.Equal(1, m1.TreeRoot.[0].Children.Value.Length)
+
+    // Level 2: ToggleExpand on "CF/0" -> should trigger ExpandNode
+    let m2, cmd2 = update (ToggleExpand "CF/0") m1
+    Assert.False(cmd2 |> List.isEmpty) // Should produce expand command
+
+    // Level 2: NodeExpanded for "CF/0"
+    let ch2 = [ makeNode "CF/0/Sim" "Simulation" ]
+    let m3, _ = update (NodeExpanded("CF/0", ch2, None, testElapsed)) m2
+
+    // Level 3: ToggleExpand on "CF/0/Sim" -> should trigger ExpandNode
+    let m4, cmd4 = update (ToggleExpand "CF/0/Sim") m3
+    Assert.False(cmd4 |> List.isEmpty) // Should produce expand command
+
+    // Level 3: NodeExpanded for "CF/0/Sim"
+    let ch3 = [ makeNode "CF/0/Sim/Bogie" "Bogie_2" ]
+    let m5, _ = update (NodeExpanded("CF/0/Sim", ch3, None, testElapsed)) m4
+
+    // Level 4: ToggleExpand on "CF/0/Sim/Bogie" -> should trigger ExpandNode
+    let m6, cmd6 = update (ToggleExpand "CF/0/Sim/Bogie") m5
+    Assert.False(cmd6 |> List.isEmpty) // Should produce expand command
+
+    // Level 4: NodeExpanded for "CF/0/Sim/Bogie"
+    let ch4 = [ makeNode "CF/0/Sim/Bogie/Children" "Children" ]
+    let m7, _ = update (NodeExpanded("CF/0/Sim/Bogie", ch4, None, testElapsed)) m6
+
+    // Level 5: ToggleExpand on "CF/0/Sim/Bogie/Children" -> should trigger ExpandNode
+    let m8, cmd8 = update (ToggleExpand "CF/0/Sim/Bogie/Children") m7
+    Assert.False(cmd8 |> List.isEmpty) // Should produce expand command at level 5
+
+    // Verify the full tree structure
+    let cfNode = m8.TreeRoot.[0]
+    Assert.True(cfNode.IsExpanded)
+    let node0 = cfNode.Children.Value.[0]
+    Assert.True(node0.IsExpanded)
+    let sim = node0.Children.Value.[0]
+    Assert.True(sim.IsExpanded)
+    let bogie = sim.Children.Value.[0]
+    Assert.True(bogie.IsExpanded)
+    let childrenNode = bogie.Children.Value.[0]
+    Assert.True(childrenNode.Children.IsNone) // Not yet expanded
+
+[<Fact>]
+let ``ToggleExpand on pre-populated node expands without API call`` () =
+    // Simulate a node pre-populated with children (from recursive mapping of root /list)
+    let grandchild = makeNode "Player/TC0" "TransformComponent0"
+    let parent = { makeNode "Player" "Player" with Children = Some [ grandchild ] }
+    let initial = { connectedModel () with TreeRoot = [ parent ] }
+    // ToggleExpand on parent should NOT trigger an API call (case 3: already has children)
+    let model, cmd = update (ToggleExpand "Player") initial
+    Assert.True(model.TreeRoot.[0].IsExpanded)
+    Assert.True(cmd |> List.isEmpty) // No API call needed
+    Assert.Equal(1, model.TreeRoot.[0].Children.Value.Length)
+    Assert.Equal("Player/TC0", model.TreeRoot.[0].Children.Value.[0].Path)
+
+[<Fact>]
+let ``ToggleExpand on pre-populated child triggers API expand`` () =
+    // Pre-populated grandchild has Children = None (not yet loaded)
+    let grandchild = makeNode "Player/TC0" "TransformComponent0"
+    let parent = { makeNode "Player" "Player" with IsExpanded = true; Children = Some [ grandchild ] }
+    let initial = { connectedModel () with TreeRoot = [ parent ] }
+    // ToggleExpand on grandchild should trigger API call (case 2: Children.IsNone)
+    let _, cmd = update (ToggleExpand "Player/TC0") initial
+    Assert.False(cmd |> List.isEmpty) // Should trigger API expand
+
+// ─── Bug fix: UnbindEndpoint clears PollingValues and sends serial clear ───
+
+[<Fact>]
+let ``UnbindEndpoint removes key from PollingValues`` () =
+    let model =
+        { connectedWithLoco () with
+            PollingValues = Map.ofList [("A.B", "1"); ("C.D", "0")]
+            BindingsConfig =
+                { Version = 1
+                  Locos = [ { LocoName = "TestLoco_123"
+                              BoundEndpoints = [ { NodePath = "A"; EndpointName = "B"; Label = "A.B" }
+                                                 { NodePath = "C"; EndpointName = "D"; Label = "C.D" } ] } ] } }
+    let newModel, _ = update (UnbindEndpoint ("A", "B")) model
+    // The unbound endpoint key should be removed from PollingValues
+    Assert.True(Map.tryFind "A.B" newModel.PollingValues |> Option.isNone)
+    // The other endpoint key should remain
+    Assert.Equal(Some "0", Map.tryFind "C.D" newModel.PollingValues)
+
+[<Fact>]
+let ``UnbindEndpoint returns serial clear command`` () =
+    let model =
+        { connectedWithLoco () with
+            PollingValues = Map.ofList [("A.B", "1")]
+            BindingsConfig =
+                { Version = 1
+                  Locos = [ { LocoName = "TestLoco_123"
+                              BoundEndpoints = [ { NodePath = "A"; EndpointName = "B"; Label = "A.B" } ] } ] } }
+    let _, cmd = update (UnbindEndpoint ("A", "B")) model
+    // Should return a command (serial clear), not Cmd.none
+    Assert.False(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``UnbindEndpoint with no loco is no-op`` () =
+    let model = { connectedModel () with CurrentLoco = None; BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, cmd = update (UnbindEndpoint ("A", "B")) model
+    Assert.True(cmd |> List.isEmpty)
+
+// ─── Bug fix: LocoDetected sends serial clear on loco change ───
+
+[<Fact>]
+let ``LocoDetected with loco change returns serial clear command`` () =
+    let model =
+        { connectedModel () with
+            CurrentLoco = Some "OldLoco"
+            PollingValues = Map.ofList [("k", "v")]
+            BindingsConfig = { Version = 1; Locos = [] } }
+    let _, cmd = update (LocoDetected "NewLoco") model
+    // Should return a command (loadRootNodes + serial clear)
+    Assert.False(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``LocoDetected same loco returns no command`` () =
+    let model =
+        { connectedModel () with
+            CurrentLoco = Some "SameLoco"
+            PollingValues = Map.ofList [("k", "v")]
+            BindingsConfig = { Version = 1; Locos = [] } }
+    let _, cmd = update (LocoDetected "SameLoco") model
+    Assert.True(cmd |> List.isEmpty)
+
+// ─── Bug fix: Null-safe endpoint handling ───
+
+[<Fact>]
+let ``GetEndpointValue with empty path does not crash`` () =
+    let model = connectedModel ()
+    let newModel, cmd = update (GetEndpointValue "") model
+    Assert.False(cmd |> List.isEmpty)

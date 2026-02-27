@@ -68,8 +68,7 @@ module SerialPortModule =
         let timer = Avalonia.Threading.DispatcherTimer()
         timer.Interval <- TimeSpan.FromMilliseconds 1000.0
         
-        let mutable lastPorts = getAvailablePorts ()
-        onUpdate lastPorts
+        let mutable lastPorts = []
         
         timer.Tick.Add(fun _ ->
             let currentPorts = getAvailablePorts ()

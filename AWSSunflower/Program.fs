@@ -8,169 +8,125 @@ open Avalonia.FuncUI.Hosts
 open Avalonia.Controls
 open Avalonia.FuncUI
 open Avalonia.FuncUI.DSL
-open Avalonia.Layout
 open Avalonia.Threading
+open global.Elmish
+open Avalonia.FuncUI.Elmish.ElmishHook
+open System.Threading.Tasks
 open CounterApp.SerialPortModule
-open CounterApp.Components
+
+module ErrorHandling =
+
+    let showErrorDialog (message: string) =
+        try
+            Dispatcher.UIThread.Post(fun () ->
+                try
+                    let window = Window()
+                    window.Title <- "AWS Sunflower — Error"
+                    window.Width <- 420.0
+                    window.Height <- 180.0
+                    window.WindowStartupLocation <- WindowStartupLocation.CenterScreen
+                    let panel = StackPanel()
+                    panel.Margin <- Thickness(20.0)
+                    panel.VerticalAlignment <- Avalonia.Layout.VerticalAlignment.Center
+                    let text = TextBlock()
+                    text.Text <- message
+                    text.TextWrapping <- Avalonia.Media.TextWrapping.Wrap
+                    text.Margin <- Thickness(0.0, 0.0, 0.0, 16.0)
+                    panel.Children.Add(text)
+                    let btn = Button()
+                    btn.Content <- "OK"
+                    btn.HorizontalAlignment <- Avalonia.Layout.HorizontalAlignment.Center
+                    btn.Click.Add(fun _ -> window.Close())
+                    panel.Children.Add(btn)
+                    window.Content <- panel
+                    window.Show()
+                with _ -> ()
+            )
+        with _ -> ()
+
+    let setupGlobalExceptionHandlers () =
+#if DEBUG
+        () // Debug: let exceptions propagate with full stack traces
+#else
+        AppDomain.CurrentDomain.UnhandledException.Add(fun args ->
+            let ex = args.ExceptionObject :?> Exception
+            eprintfn "[UNHANDLED EXCEPTION] %A" ex
+            showErrorDialog "An unexpected error occurred. The application will now close."
+        )
+
+        TaskScheduler.UnobservedTaskException.Add(fun args ->
+            eprintfn "[UNOBSERVED TASK EXCEPTION] %A" args.Exception
+            args.SetObserved()
+            showErrorDialog "An unexpected error occurred. The application will continue running."
+        )
+#endif
+
+    let safeDispatch (dispatch: 'msg -> unit) (msg: 'msg) =
+#if DEBUG
+        dispatch msg
+#else
+        try
+            dispatch msg
+        with ex ->
+            eprintfn "[DISPATCH ERROR] %A" ex
+            showErrorDialog "An unexpected error occurred. The application will continue running."
+#endif
 
 module Main =
 
     let view () =
         Component(fun ctx ->
-            // State management (lifted state pattern)
-            let serialPorts = ctx.useState []
-            let selectedPort = ctx.useState None
-            let connectionState = ctx.useState ConnectionState.Disconnected
-            let isConnecting = ctx.useState false
-            let serialPortRef = ctx.useState(None, renderOnChange = false)
-            let toasts = ctx.useState []
-            
-            // Port polling setup
+            let writableModel = ctx.useState (ApiExplorer.init (), true)
+            let model, dispatch = ctx.useElmish(writableModel, ApiExplorer.update)
+            let safe = ErrorHandling.safeDispatch dispatch
+
+            // Port polling effect
             ctx.useEffect(
                 handler = (fun _ ->
                     let polling = startPortPolling (fun ports ->
-                        serialPorts.Set ports
+                        safe (ApiExplorer.PortsUpdated ports)
                     )
-                    
-                    { new IDisposable with
-                        member _.Dispose() =
-                            polling.Dispose()
-                    }
+                    { new IDisposable with member _.Dispose() = polling.Dispose() }
                 ),
                 triggers = [ EffectTrigger.AfterInit ]
             )
-            
-            // Auto-dismiss toasts after 5 seconds
+
+            // Polling + loco detection timers
             ctx.useEffect(
                 handler = (fun _ ->
-                    if toasts.Current.Length > 0 then
-                        let timer = DispatcherTimer()
-                        timer.Interval <- TimeSpan.FromSeconds 5.0
-                        timer.Tick.Add(fun _ ->
-                            if toasts.Current.Length > 0 then
-                                let remaining = toasts.Current |> List.tail
-                                toasts.Set remaining
-                                if remaining.Length = 0 then
-                                    timer.Stop()
-                        )
-                        timer.Start()
-                        { new IDisposable with
-                            member _.Dispose() = timer.Stop()
-                        }
-                    else
-                        { new IDisposable with
-                            member _.Dispose() = ()
-                        }
+                    let timer = DispatcherTimer()
+                    timer.Interval <- TimeSpan.FromMilliseconds(200.0)
+                    timer.Tick.Add(fun _ ->
+                        if writableModel.Current.IsPolling then safe ApiExplorer.PollingTick
+                    )
+                    timer.Start()
+
+                    let locoTimer = DispatcherTimer()
+                    locoTimer.Interval <- TimeSpan.FromSeconds(1.0)
+                    locoTimer.Tick.Add(fun _ ->
+                        if writableModel.Current.ApiConfig.IsSome then safe ApiExplorer.DetectLoco
+                    )
+                    locoTimer.Start()
+
+                    { new IDisposable with
+                        member _.Dispose() = timer.Stop(); locoTimer.Stop() }
                 ),
-                triggers = [ EffectTrigger.AfterChange toasts ]
+                triggers = [ EffectTrigger.AfterInit ]
             )
-            
-            /// Add a toast notification
-            let addToast message isError =
-                let newToast: Toast = {
-                    Id = Guid.NewGuid()
-                    Message = message
-                    IsError = isError
-                    CreatedAt = DateTime.Now
-                }
-                toasts.Set (toasts.Current @ [newToast])
-            
-            /// Dismiss a specific toast
-            let dismissToast (id: Guid) =
-                toasts.Set (toasts.Current |> List.filter (fun t -> t.Id <> id))
-            
-            /// Toggle connection to serial port
-            let toggleConnection () =
-                match connectionState.Current, selectedPort.Current with
-                | ConnectionState.Connected _, _ ->
-                    // Disconnect
-                    isConnecting.Set false
-                    serialPortRef.Set None |> ignore
-                    connectionState.Set ConnectionState.Disconnected
-                    addToast "Disconnected from port" false
-                    
-                | ConnectionState.Disconnected, Some portName ->
-                    // Connect
-                    isConnecting.Set true
-                    async {
-                        let! result = connectAsync portName 9600
-                        match result with
-                        | Ok port ->
-                            serialPortRef.Set (Some port)
-                            connectionState.Set (ConnectionState.Connected portName)
-                            isConnecting.Set false
-                            addToast $"Connected to {portName}" false
-                        | Error error ->
-                            connectionState.Set (ConnectionState.Error error)
-                            isConnecting.Set false
-                            let errorMsg =
-                                match error with
-                                | PortInUse portName -> $"Port {portName} is already in use"
-                                | PortNotFound portName -> $"Port {portName} not found"
-                                | OpenFailed msg -> $"Failed to open port: {msg}"
-                                | SendFailed msg -> $"Send failed: {msg}"
-                                | Disconnected -> "Port disconnected"
-                            addToast errorMsg true
-                    } |> Async.StartImmediate
-                    
-                | _ -> ()
-            
-            /// Send command over serial port
-            let sendCommand cmd =
-                match serialPortRef.Current with
-                | Some port ->
-                    async {
-                        let! result = sendAsync port cmd
-                        match result with
-                        | Ok () ->
-                            addToast $"Sent: {cmd}" false
-                        | Error error ->
-                            let errorMsg =
-                                match error with
-                                | SendFailed msg -> $"Send failed: {msg}"
-                                | Disconnected -> "Port is disconnected"
-                                | _ -> "Unknown error"
-                            addToast errorMsg true
-                            connectionState.Set ConnectionState.Disconnected
-                    } |> Async.StartImmediate
-                | None -> ()
-            
-            // TabControl with Serial Port and API Explorer tabs
-            TabControl.create [
-                TabControl.tabStripPlacement Dock.Top
-                TabControl.viewItems [
-                    // Serial Port Tab
-                    TabItem.create [
-                        TabItem.header "Serial Port"
-                        TabItem.content (
-                            mainLayout
-                                serialPorts.Current
-                                connectionState.Current
-                                isConnecting.Current
-                                toasts.Current
-                                (fun port -> selectedPort.Set port)
-                                toggleConnection
-                                (fun () -> sendCommand "s")
-                                (fun () -> sendCommand "c")
-                                dismissToast
-                        )
-                    ]
-                    
-                    // API Explorer Tab
-                    TabItem.create [
-                        TabItem.header "API Explorer"
-                        TabItem.content (
-                            ApiExplorer.view ()
-                        )
-                    ]
-                ]
-            ]
+
+            ApiExplorer.mainView model safe
         )
 
 type MainWindow() =
     inherit HostWindow()
     do
         base.Title <- "AWS Sunflower"
+        base.Width <- 750.0
+        base.Height <- 950.0
+        base.WindowStartupLocation <- WindowStartupLocation.CenterScreen
+        let iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "sunflower.ico")
+        if System.IO.File.Exists(iconPath) then
+            base.Icon <- WindowIcon(iconPath)
         base.Content <- Main.view ()
 
 type App() =
@@ -190,6 +146,7 @@ module Program =
 
     [<EntryPoint>]
     let main(args: string[]) =
+        ErrorHandling.setupGlobalExceptionHandlers ()
         AppBuilder
             .Configure<App>()
             .UsePlatformDetect()
