@@ -13,8 +13,8 @@ open global.Elmish
 open Avalonia.FuncUI.Elmish.ElmishHook
 open System.Threading.Tasks
 open CounterApp.PortDetection
-open CounterApp.ApiExplorerUpdate
-open CounterApp.ApiExplorerViews
+open CounterApp.ApplicationScreenUpdate
+open CounterApp.MainView
 
 module ErrorHandling =
 
@@ -78,8 +78,8 @@ module Main =
 
     let view () =
         Component(fun ctx ->
-            let writableModel = ctx.useState (ApiExplorer.init (), true)
-            let model, dispatch = ctx.useElmish(writableModel, ApiExplorerUpdate.update)
+            let writableModel = ctx.useState (ApplicationScreen.init (), true)
+            let model, dispatch = ctx.useElmish(writableModel, ApplicationScreenUpdate.update)
             let safe = ErrorHandling.safeDispatch dispatch
 
             // Port polling effect
@@ -92,7 +92,7 @@ module Main =
                         let currentPorts = detectPorts ()
                         if currentPorts <> lastPorts then
                             lastPorts <- currentPorts
-                            safe (ApiExplorer.PortsUpdated currentPorts)
+                            safe (ApplicationScreen.PortsUpdated currentPorts)
                     )
                     timer.Start()
                     { new IDisposable with member _.Dispose() = timer.Stop() }
@@ -106,7 +106,7 @@ module Main =
                     let locoTimer = DispatcherTimer()
                     locoTimer.Interval <- TimeSpan.FromSeconds(1.0)
                     locoTimer.Tick.Add(fun _ ->
-                        if writableModel.Current.ApiConfig.IsSome then safe ApiExplorer.DetectLoco
+                        if writableModel.Current.ApiConfig.IsSome then safe ApplicationScreen.DetectLoco
                     )
                     locoTimer.Start()
 
@@ -116,7 +116,7 @@ module Main =
                 triggers = [ EffectTrigger.AfterInit ]
             )
 
-            ApiExplorerViews.mainView model safe
+            MainView.mainView model safe
         )
 
 type MainWindow() =

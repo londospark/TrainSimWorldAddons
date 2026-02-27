@@ -1,10 +1,10 @@
-module TSWApi.Tests.ApiExplorerUpdateTests
+module TSWApi.Tests.ApplicationScreenUpdateTests
 
 open System
 open Xunit
 open CounterApp
-open CounterApp.ApiExplorer
-open CounterApp.ApiExplorerUpdate
+open CounterApp.ApplicationScreen
+open CounterApp.ApplicationScreenUpdate
 open TSWApi.Types
 open TSWApi.Subscription
 open CounterApp.CommandMapping

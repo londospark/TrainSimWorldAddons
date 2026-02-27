@@ -12,7 +12,7 @@
     <Compile Include="ApiClientTests.fs" />
     <Compile Include="TreeNavigationTests.fs" />
     <Compile Include="SubscriptionTests.fs" />
-    <Compile Include="ApiExplorerUpdateTests.fs" />
+    <Compile Include="ApplicationScreenUpdateTests.fs" />
     <Compile Include="CommandMappingTests.fs" />
   </ItemGroup>
 
