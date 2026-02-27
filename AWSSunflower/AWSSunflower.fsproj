@@ -15,6 +15,12 @@
     </ItemGroup>
 
     <ItemGroup>
+      <Content Include="sunflower.ico">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+    </ItemGroup>
+
+    <ItemGroup>
       <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />
       <PackageReference Include="Avalonia.FuncUI" Version="1.5.2" />
       <PackageReference Include="Avalonia.FuncUI.Elmish" Version="1.5.2" />

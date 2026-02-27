@@ -61,6 +61,12 @@ type MainWindow() =
     inherit HostWindow()
     do
         base.Title <- "AWS Sunflower"
+        base.Width <- 750.0
+        base.Height <- 950.0
+        base.WindowStartupLocation <- WindowStartupLocation.CenterScreen
+        let iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "sunflower.ico")
+        if System.IO.File.Exists(iconPath) then
+            base.Icon <- WindowIcon(iconPath)
         base.Content <- Main.view ()
 
 type App() =
