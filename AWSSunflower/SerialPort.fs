@@ -7,7 +7,6 @@ module SerialPortModule =
     /// Connect to a serial port asynchronously
     let connectAsync (portName: string) (baudRate: int) : Async<Result<IO.Ports.SerialPort, SerialError>> =
         async {
-            let uiContext = Threading.SynchronizationContext.Current
             try
                 let port = new IO.Ports.SerialPort()
                 port.PortName <- portName
@@ -18,7 +17,6 @@ module SerialPortModule =
                 
                 do! Async.SwitchToThreadPool()
                 port.Open()
-                do! Async.SwitchToContext(uiContext)
                 
                 return Ok port
             with
@@ -33,14 +31,12 @@ module SerialPortModule =
     /// Send data over serial port asynchronously
     let sendAsync (port: IO.Ports.SerialPort) (data: string) : Async<Result<unit, SerialError>> =
         async {
-            let uiContext = Threading.SynchronizationContext.Current
             try
                 if not port.IsOpen then
                     return Error Disconnected
                 else
                     do! Async.SwitchToThreadPool()
                     port.WriteLine data
-                    do! Async.SwitchToContext(uiContext)
                     return Ok ()
             with
             | ex ->

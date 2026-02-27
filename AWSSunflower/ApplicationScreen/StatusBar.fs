@@ -13,7 +13,7 @@ module StatusBar =
     let statusBar (model: Model) =
         Border.create [
             Border.dock Dock.Bottom
-            Border.background (SolidColorBrush(Color.Parse(AppColors.panelBg)))
+            Border.background (AppColors.panelBg)
             Border.padding 10.0
             Border.child (
                 StackPanel.create [
@@ -31,8 +31,8 @@ module StatusBar =
                             TextBlock.fontSize 11.0
                             TextBlock.foreground (
                                 match model.ConnectionState with
-                                | ApiConnectionState.Connected _ -> SolidColorBrush(Color.Parse(AppColors.connected))
-                                | ApiConnectionState.Error _ -> SolidColorBrush(Color.Parse(AppColors.error))
+                                | ApiConnectionState.Connected _ -> AppColors.connected
+                                | ApiConnectionState.Error _ -> AppColors.error
                                 | _ -> SolidColorBrush Colors.White
                             )
                         ]
@@ -50,7 +50,7 @@ module StatusBar =
                             TextBlock.create [
                                 TextBlock.text (sprintf "Loco: %s" loco)
                                 TextBlock.fontSize 11.0
-                                TextBlock.foreground (SolidColorBrush(Color.Parse(AppColors.info)))
+                                TextBlock.foreground (AppColors.info)
                             ]
                         | None -> ()
                     ]

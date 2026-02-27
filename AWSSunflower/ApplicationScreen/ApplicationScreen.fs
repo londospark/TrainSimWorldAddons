@@ -29,6 +29,7 @@ module ApplicationScreen =
           CurrentLoco: string option
           BindingsConfig: BindingsConfig
           PollingValues: Map<string, string>
+          IsSubscriptionActive: bool
           // Command mapping
           ActiveAddon: AddonCommandSet option
           // Shared serial port
@@ -92,6 +93,7 @@ module ApplicationScreen =
           CurrentLoco = None
           BindingsConfig = BindingPersistence.load ()
           PollingValues = Map.empty
+          IsSubscriptionActive = false
           ActiveAddon = Some AWSSunflowerCommands.commandSet
           SerialPort = None
           SerialPortName = None }
