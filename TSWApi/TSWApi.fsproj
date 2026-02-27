@@ -9,6 +9,7 @@
     <Compile Include="Types.fs" />
     <Compile Include="Http.fs" />
     <Compile Include="ApiClient.fs" />
+    <Compile Include="Subscription.fs" />
     <Compile Include="TreeNavigation.fs" />
   </ItemGroup>
 

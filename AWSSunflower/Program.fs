@@ -12,7 +12,7 @@ open Avalonia.Threading
 open global.Elmish
 open Avalonia.FuncUI.Elmish.ElmishHook
 open System.Threading.Tasks
-open CounterApp.SerialPortModule
+open CounterApp.PortDetection
 
 module ErrorHandling =
 
@@ -83,24 +83,24 @@ module Main =
             // Port polling effect
             ctx.useEffect(
                 handler = (fun _ ->
-                    let polling = startPortPolling (fun ports ->
-                        safe (ApiExplorer.PortsUpdated ports)
+                    let timer = Avalonia.Threading.DispatcherTimer()
+                    timer.Interval <- TimeSpan.FromMilliseconds 1000.0
+                    let mutable lastPorts : DetectedPort list = []
+                    timer.Tick.Add(fun _ ->
+                        let currentPorts = detectPorts ()
+                        if currentPorts <> lastPorts then
+                            lastPorts <- currentPorts
+                            safe (ApiExplorer.PortsUpdated currentPorts)
                     )
-                    { new IDisposable with member _.Dispose() = polling.Dispose() }
+                    timer.Start()
+                    { new IDisposable with member _.Dispose() = timer.Stop() }
                 ),
                 triggers = [ EffectTrigger.AfterInit ]
             )
 
-            // Polling + loco detection timers
+            // Loco detection timer
             ctx.useEffect(
                 handler = (fun _ ->
-                    let timer = DispatcherTimer()
-                    timer.Interval <- TimeSpan.FromMilliseconds(200.0)
-                    timer.Tick.Add(fun _ ->
-                        if writableModel.Current.IsPolling then safe ApiExplorer.PollingTick
-                    )
-                    timer.Start()
-
                     let locoTimer = DispatcherTimer()
                     locoTimer.Interval <- TimeSpan.FromSeconds(1.0)
                     locoTimer.Tick.Add(fun _ ->
@@ -109,7 +109,7 @@ module Main =
                     locoTimer.Start()
 
                     { new IDisposable with
-                        member _.Dispose() = timer.Stop(); locoTimer.Stop() }
+                        member _.Dispose() = locoTimer.Stop() }
                 ),
                 triggers = [ EffectTrigger.AfterInit ]
             )

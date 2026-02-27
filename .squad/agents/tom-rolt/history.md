@@ -98,6 +98,24 @@
   3. `safeDispatch` wrapper — wraps ALL Elmish dispatch calls (timers, port polling, view) in try/catch
 - **User-friendly dialog:** Simple Avalonia Window with message + OK button, posted via `Dispatcher.UIThread.Post`
 - **safeDispatch is the key layer** — catches NRE-in-update-chain bugs at the dispatch boundary before they become unhandled
-- `TaskScheduler.UnobservedTaskException.SetObserved()` prevents GC finalizer re-throw
+**Status:** ✅ Completed & tested
+
+### UI Refinements — Subscription, PortDetection, CommandMapping (2026-02-25)
+**Date:** 2026-02-25  
+**Task:** Integrate three new library modules into AWSSunflower UI
+
+**Key Changes:**
+- **Subscription API (Change Set 1):** Replaced manual 200ms `DispatcherTimer` + `pollEndpointsCmd` with `TSWApi.Subscription.create`. Subscription is stored in a module-level mutable ref (`currentSubscription`). Created via `Cmd.ofEffect` which captures `dispatch` and marshals `OnChange` callbacks to UI thread via `Dispatcher.UIThread.Post`. Removed `IsPolling`, `StartPolling`, `StopPolling`, `PollingTick`, `PollValueReceived`, `PollError`. Added `EndpointChanged of ValueChange`.
+- **Port Detection (Change Set 2):** Replaced `SerialPorts: string list` with `DetectedPorts: DetectedPort list`. Port polling now uses `PortDetection.detectPorts()` instead of `SerialPort.getAvailablePorts()`. ComboBox shows `portDisplayName` (e.g., "COM3 — Arduino Uno"). Auto-selects Arduino when `detectArduino()` returns `SingleArduino`.
+- **Command Mapping (Change Set 3):** Added `ActiveAddon: AddonCommandSet option` to Model, initialized to `AWSSunflowerCommands.commandSet`. `EndpointChanged` uses `CommandMapping.translate` instead of hardcoded substring matching. `UnbindEndpoint` and `LocoDetected` use `CommandMapping.resetCommand` instead of literal `"c"`.
+- **Pattern:** Mutable ref + `Cmd.ofEffect` is the practical pattern for IDisposable resources in Elmish. The subscription is a resource (like HttpClient), not UI state.
+
+**Files Modified:**
+- `AWSSunflower/ApiExplorer.fs` — All three change sets
+- `AWSSunflower/Program.fs` — Removed 200ms timer, updated port polling to use `PortDetection`
+- `TSWApi.Tests/ApiExplorerUpdateTests.fs` — Updated tests for new API
+
+**Test Integration:**
+- 190 tests passing (17 AWSSunflower.Tests + 173 TSWApi.Tests)
 
 **Status:** ✅ Completed & tested

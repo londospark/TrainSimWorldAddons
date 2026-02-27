@@ -11,6 +11,30 @@
 ## Learnings
 <!-- Append learnings below -->
 
+### CommandMapping Abstraction Layer (2025-07-23)
+**Date:** 2025-07-23
+**Branch:** feature/command-abstraction
+
+Implemented the CommandMapping abstraction layer per Talyllyn's ADR to replace hardcoded serial command logic with extensible, type-safe abstraction.
+
+**Key Design Patterns:**
+- **Semantic Action Layer:** `Action` DU (Activate/Deactivate/SetValue/Pulse) separates "what happened" from "what to send"
+- **ValueInterpreter:** Boolean uses EXACT match ("1"/"True"/"true" only) — fixes existing `value.Contains("1")` bug that matched "10", "21", etc.
+- **Option-based Pipeline:** `translate : AddonCommandSet -> string -> string -> SerialCommand option` composes lookup → interpret → map with Option.bind
+- **Concrete Addons:** `AWSSunflowerCommands.commandSet` defines endpoint mappings, interpreter, and reset command
+
+**Test-Driven Development:**
+- Wrote all 29 tests FIRST (per TDD charter)
+- Tests cover: Boolean exact match, Continuous float parsing, Mapped enum, translate pipeline, toWireString, resetCommand
+- Integration tests verify AWSSunflower addon: "1" → "s", "0" → "c", "10" → None (bug fix!), reset → "c"
+- All 156 tests pass (87 existing + 29 new)
+
+**File Structure:**
+- `AWSSunflower/CommandMapping.fs` — added after SerialPort.fs, before Components.fs in compile order
+- `TSWApi.Tests/CommandMappingTests.fs` — tests in existing test project (already references AWSSunflower.fsproj)
+
+**Status:** ✅ Ready for merge
+
 ### Http.fs Typestate Refactor (Issue #23)
 **Date:** 2025-01-XX
 **Branch:** feature/typestate-refactor
@@ -61,5 +85,34 @@ Updated HTTP client infrastructure to work with validated types:
 - Existing binding tests pass without modification (API contract preserved)
 - Test isolation fixed: binding mutations are now pure in-memory (DB flush is explicit)
 - Edward Thomas writing comprehensive SQLite CRUD tests on feature/elmish-sqlite
+
+**Status:** ✅ Ready for merge
+
+### HTTP Method Parameterization (2026-02-25)
+**Date:** 2026-02-25  
+**Branch:** feature/http-verbs  
+**Task:** Extend Http.fs with HTTP method parameterization (POST/PATCH/DELETE support)
+
+**Implementation:**
+- Added `sendRequestWithMethod` — generic HTTP method handler with optional body
+- Refactored existing `sendRequest` to delegate to `sendRequestWithMethod` with GET + no body
+- Added convenience wrappers: `sendPost`, `sendPatch`, `sendDelete`
+- Body content automatically sets `Content-Type: application/json` when provided
+- All methods maintain HTTP/1.1 version requirement (TSW6)
+- All methods include DTGCommKey header
+
+**TDD Approach:**
+- Wrote 10 tests FIRST covering:
+  - Method parameterization (GET/POST/PATCH/DELETE)
+  - Request body handling (present/absent)
+  - Content-Type header verification
+  - DTGCommKey header on all methods
+  - HTTP/1.1 version enforcement
+  - Convenience wrapper delegation
+- All 200 tests pass (190 existing + 10 new)
+
+**Test Infrastructure:**
+- Enhanced MockHandler to capture request method, body, and Content-Type before disposal
+- Used task-based SendAsync override to read HttpContent before HttpRequestMessage disposal
 
 **Status:** ✅ Ready for merge

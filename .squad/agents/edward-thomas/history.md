@@ -135,3 +135,49 @@ Wrote 12 new tests on branch `feature/elmish-sqlite` covering three migration ar
 - **Impact:** Test suite now stable, no cross-test contamination
 
 **Status:** ✅ In progress, targeting completion this batch (106+ tests passing)
+
+### 2027-02-27: Port Detection Module Implementation (TDD)
+
+**Date:** 2027-02-27  
+**Branch:** feature/port-detection  
+**Task:** Implement Arduino/USB COM port detection module
+
+**TDD Approach:**
+- Wrote 17 tests FIRST covering all pure functions and classification logic
+- Tests initially failed (red phase) as expected
+- Implemented PortDetection.fs to make all tests pass (green phase)
+
+**Module Structure:**
+- **File:** AWSSunflower/PortDetection.fs (after SerialPort.fs, before Components.fs)
+- **Namespace:** CounterApp
+- **Types:** KnownVids module, UsbDeviceInfo record, DetectedPort record, DetectionResult DU
+- **Functions:** tryParseVidPid, isArduinoVid, detectPorts, classifyPorts, detectArduino, portDisplayName
+
+**Key Design:**
+- **Registry-based detection:** Reads HKLM\SYSTEM\CurrentControlSet\Enum\USB to match COM ports to VID/PID
+- **Graceful fallback:** If registry access fails (SecurityException/UnauthorizedAccessException), returns bare port names
+- **Pure functions:** tryParseVidPid, isArduinoVid, classifyPorts are fully testable without hardware
+- **classifyPorts extracted:** Separates classification logic from I/O for testability
+- **InternalsVisibleTo:** Added to AWSSunflower.fsproj to allow test project access
+
+**Test Coverage (17 tests, all passing):**
+1-5. tryParseVidPid: Valid VID/PID parsing (2 cases), invalid input, empty string, case insensitivity
+6-12. isArduinoVid: Arduino LLC, CH340, FTDI, CP210x (true cases), unknown VID (false), case insensitivity
+13-16. classifyPorts: Empty list → NoPorts, single Arduino → SingleArduino, multiple Arduinos → MultipleArduinos, no Arduino → NoArduinoFound
+17-18. portDisplayName: With USB info displays "COM3 — Arduino Uno", without displays "COM3"
+
+**Test Project Setup:**
+- Created AWSSunflower.Tests/ with xUnit framework
+- Added project reference to AWSSunflower (Exe project)
+- Required InternalsVisibleTo attribute in AWSSunflower.fsproj for visibility
+- All tests use qualified names (PortDetection.tryParseVidPid) due to module vs namespace distinction
+
+**Challenges:**
+- Initially used `vidMatch.Groups.[1]` for both VID and PID (copy-paste error) — caught before commit
+- Test project visibility: Exe projects have internal-only visibility by default, needed InternalsVisibleTo
+- Module qualification: F# requires PortDetection.X when opening namespace CounterApp (not `open CounterApp.PortDetection`)
+
+**Outcome:** ✅ All 17 tests pass. Module ready for integration into AWSSunflower UI. Registry detection works on Windows, gracefully falls back if registry unavailable.
+
+**Commit:** e3cfe9d on `feature/port-detection`
+

@@ -43,6 +43,17 @@ module BindingPersistence =
         """
         cmd.ExecuteNonQuery() |> ignore
 
+    let private insertEndpoint (conn: SqliteConnection) (locoId: int64) (ep: BoundEndpoint) =
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <- """
+            INSERT INTO BoundEndpoints (loco_id, node_path, endpoint_name, label)
+            VALUES (@locoId, @nodePath, @endpointName, @label);"""
+        cmd.Parameters.AddWithValue("@locoId", locoId) |> ignore
+        cmd.Parameters.AddWithValue("@nodePath", ep.NodePath) |> ignore
+        cmd.Parameters.AddWithValue("@endpointName", ep.EndpointName) |> ignore
+        cmd.Parameters.AddWithValue("@label", ep.Label) |> ignore
+        cmd.ExecuteNonQuery() |> ignore
+
     let private migrateFromJson (conn: SqliteConnection) =
         if File.Exists(jsonPath) then
             try
@@ -64,16 +75,7 @@ module BindingPersistence =
                     let locoId = getLocoId.ExecuteScalar() :?> int64
 
                     for ep in loco.BoundEndpoints do
-                        use insertEp = conn.CreateCommand()
-                        insertEp.CommandText <- """
-                            INSERT INTO BoundEndpoints (loco_id, node_path, endpoint_name, label)
-                            VALUES (@locoId, @nodePath, @endpointName, @label);
-                        """
-                        insertEp.Parameters.AddWithValue("@locoId", locoId) |> ignore
-                        insertEp.Parameters.AddWithValue("@nodePath", ep.NodePath) |> ignore
-                        insertEp.Parameters.AddWithValue("@endpointName", ep.EndpointName) |> ignore
-                        insertEp.Parameters.AddWithValue("@label", ep.Label) |> ignore
-                        insertEp.ExecuteNonQuery() |> ignore
+                        insertEndpoint conn locoId ep
             with ex ->
                 eprintfn "[Persistence] JSON migration failed: %s" ex.Message
 
@@ -100,29 +102,29 @@ module BindingPersistence =
             ORDER BY l.id, b.id;
         """
         use reader = cmd.ExecuteReader()
-        let mutable locoMap: Map<string, BoundEndpoint list> = Map.empty
-        let mutable locoOrder: string list = []
+        let locoMap = System.Collections.Generic.Dictionary<string, ResizeArray<BoundEndpoint>>()
+        let locoOrder = ResizeArray<string>()
         while reader.Read() do
             let locoName = reader.GetString(0)
             if not (locoMap.ContainsKey locoName) then
-                locoOrder <- locoOrder @ [locoName]
-                locoMap <- locoMap |> Map.add locoName []
+                locoOrder.Add(locoName)
+                locoMap.[locoName] <- ResizeArray<BoundEndpoint>()
             if not (reader.IsDBNull(1)) then
-                let ep = {
+                locoMap.[locoName].Add({
                     NodePath = reader.GetString(1)
                     EndpointName = reader.GetString(2)
                     Label = reader.GetString(3)
-                }
-                locoMap <- locoMap |> Map.add locoName (locoMap.[locoName] @ [ep])
+                })
         { Version = 1
-          Locos = locoOrder |> List.map (fun name -> { LocoName = name; BoundEndpoints = locoMap.[name] }) }
+          Locos = locoOrder |> Seq.map (fun name -> { LocoName = name; BoundEndpoints = locoMap.[name] |> Seq.toList }) |> Seq.toList }
 
     let load () : BindingsConfig =
         try
             ensureInitialized()
             use conn = openConnection()
             readAllFromDb conn
-        with _ ->
+        with ex ->
+            eprintfn "[Persistence] Failed to load: %s" ex.Message
             { Version = 1; Locos = [] }
 
     let save (config: BindingsConfig) =
@@ -149,16 +151,7 @@ module BindingPersistence =
                 let locoId = getLocoId.ExecuteScalar() :?> int64
 
                 for ep in loco.BoundEndpoints do
-                    use insertEp = conn.CreateCommand()
-                    insertEp.CommandText <- """
-                        INSERT INTO BoundEndpoints (loco_id, node_path, endpoint_name, label)
-                        VALUES (@locoId, @nodePath, @endpointName, @label);
-                    """
-                    insertEp.Parameters.AddWithValue("@locoId", locoId) |> ignore
-                    insertEp.Parameters.AddWithValue("@nodePath", ep.NodePath) |> ignore
-                    insertEp.Parameters.AddWithValue("@endpointName", ep.EndpointName) |> ignore
-                    insertEp.Parameters.AddWithValue("@label", ep.Label) |> ignore
-                    insertEp.ExecuteNonQuery() |> ignore
+                    insertEndpoint conn locoId ep
 
             tx.Commit()
         with ex ->
