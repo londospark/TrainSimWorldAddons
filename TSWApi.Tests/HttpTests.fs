@@ -14,9 +14,27 @@ open TSWApi.Http
 type MockHandler(response: HttpResponseMessage) =
     inherit HttpMessageHandler()
     member val LastRequest: HttpRequestMessage option = None with get, set
-    override this.SendAsync(request, _cancellationToken) =
+    member val LastRequestBody: string option = None with get, set
+    member val LastRequestMethod: HttpMethod option = None with get, set
+    member val LastContentType: string option = None with get, set
+    override this.SendAsync(request, _cancellationToken) = task {
         this.LastRequest <- Some request
-        Task.FromResult(response)
+        this.LastRequestMethod <- Some request.Method
+        // Capture body and content-type before request is disposed
+        match request.Content with
+        | null -> 
+            this.LastRequestBody <- None
+            this.LastContentType <- None
+        | content -> 
+            let! body = content.ReadAsStringAsync()
+            this.LastRequestBody <- if System.String.IsNullOrEmpty(body) then None else Some body
+            this.LastContentType <- 
+                if content.Headers.ContentType <> null then
+                    Some content.Headers.ContentType.MediaType
+                else
+                    None
+        return response
+    }
 
 let createMockHandler (statusCode: HttpStatusCode) (content: string) =
     let response = new HttpResponseMessage(statusCode)
@@ -207,5 +225,206 @@ let ``sendRequest returns ParseError on invalid JSON`` () = async {
         match result with
         | Error (ParseError _) -> ()
         | other -> Assert.Fail($"Expected ParseError, got {other}")
+    | Error e -> Assert.Fail($"Failed to create test config: {e}")
+}
+
+// ── sendRequestWithMethod tests ──
+
+[<Fact>]
+let ``sendRequestWithMethod with GET and no body works same as sendRequest`` () = async {
+    let json = """{"Result":"Success"}"""
+    let handler = createMockHandler HttpStatusCode.OK json
+    let client = new HttpClient(handler)
+    match CommKey.create "key" with
+    | Ok key ->
+        let config = { BaseUrl = BaseUrl.defaultUrl; CommKey = key }
+        let! result = sendRequestWithMethod<{| Result: string |}> client config HttpMethod.Get "/info" None
+        match result with
+        | Ok r -> Assert.Equal("Success", r.Result)
+        | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
+        
+        // Verify request method
+        Assert.Equal(Some HttpMethod.Get, handler.LastRequestMethod)
+        
+        // Verify no body
+        Assert.True(handler.LastRequestBody.IsNone)
+    | Error e -> Assert.Fail($"Failed to create test config: {e}")
+}
+
+[<Fact>]
+let ``sendRequestWithMethod POST sends with body and application/json content-type`` () = async {
+    let json = """{"Result":"Created"}"""
+    let handler = createMockHandler HttpStatusCode.Created json
+    let client = new HttpClient(handler)
+    match CommKey.create "key" with
+    | Ok key ->
+        let config = { BaseUrl = BaseUrl.defaultUrl; CommKey = key }
+        let requestBody = """{"name":"test"}"""
+        let! result = sendRequestWithMethod<{| Result: string |}> client config HttpMethod.Post "/subscribe" (Some requestBody)
+        match result with
+        | Ok r -> Assert.Equal("Created", r.Result)
+        | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
+        
+        // Verify request method
+        Assert.Equal(Some HttpMethod.Post, handler.LastRequestMethod)
+        
+        // Verify body content
+        Assert.Equal(Some requestBody, handler.LastRequestBody)
+        
+        // Verify content-type
+        Assert.Equal(Some "application/json", handler.LastContentType)
+    | Error e -> Assert.Fail($"Failed to create test config: {e}")
+}
+
+[<Fact>]
+let ``sendRequestWithMethod PATCH sends with body and application/json content-type`` () = async {
+    let json = """{"Result":"Updated"}"""
+    let handler = createMockHandler HttpStatusCode.OK json
+    let client = new HttpClient(handler)
+    match CommKey.create "key" with
+    | Ok key ->
+        let config = { BaseUrl = BaseUrl.defaultUrl; CommKey = key }
+        let requestBody = """{"value":"42"}"""
+        let! result = sendRequestWithMethod<{| Result: string |}> client config (HttpMethod("PATCH")) "/set/test" (Some requestBody)
+        match result with
+        | Ok r -> Assert.Equal("Updated", r.Result)
+        | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
+        
+        // Verify request method
+        Assert.Equal(Some (HttpMethod("PATCH")), handler.LastRequestMethod)
+        
+        // Verify body content
+        Assert.Equal(Some requestBody, handler.LastRequestBody)
+        
+        // Verify content-type
+        Assert.Equal(Some "application/json", handler.LastContentType)
+    | Error e -> Assert.Fail($"Failed to create test config: {e}")
+}
+
+[<Fact>]
+let ``sendRequestWithMethod DELETE sends without body`` () = async {
+    let json = """{"Result":"Deleted"}"""
+    let handler = createMockHandler HttpStatusCode.OK json
+    let client = new HttpClient(handler)
+    match CommKey.create "key" with
+    | Ok key ->
+        let config = { BaseUrl = BaseUrl.defaultUrl; CommKey = key }
+        let! result = sendRequestWithMethod<{| Result: string |}> client config HttpMethod.Delete "/subscribe/123" None
+        match result with
+        | Ok r -> Assert.Equal("Deleted", r.Result)
+        | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
+        
+        // Verify request method
+        Assert.Equal(Some HttpMethod.Delete, handler.LastRequestMethod)
+        
+        // Verify no body
+        Assert.True(handler.LastRequestBody.IsNone)
+    | Error e -> Assert.Fail($"Failed to create test config: {e}")
+}
+
+[<Fact>]
+let ``sendRequestWithMethod includes DTGCommKey header for all methods`` () = async {
+    let json = """{"Result":"Success"}"""
+    let handler = createMockHandler HttpStatusCode.OK json
+    let client = new HttpClient(handler)
+    match CommKey.create "test-key-456" with
+    | Ok key ->
+        let config = { BaseUrl = BaseUrl.defaultUrl; CommKey = key }
+        
+        // Test POST
+        let! _ = sendRequestWithMethod<{| Result: string |}> client config HttpMethod.Post "/test" (Some "{}")
+        let req = handler.LastRequest.Value
+        Assert.True(req.Headers.Contains("DTGCommKey"))
+        let values = req.Headers.GetValues("DTGCommKey") |> Seq.toList
+        Assert.Equal<string list>(["test-key-456"], values)
+    | Error e -> Assert.Fail($"Failed to create test config: {e}")
+}
+
+[<Fact>]
+let ``sendRequestWithMethod enforces HTTP/1.1 for all methods`` () = async {
+    let json = """{"Result":"Success"}"""
+    let handler = createMockHandler HttpStatusCode.OK json
+    let client = new HttpClient(handler)
+    match CommKey.create "key" with
+    | Ok key ->
+        let config = { BaseUrl = BaseUrl.defaultUrl; CommKey = key }
+        
+        // Test POST
+        let! _ = sendRequestWithMethod<{| Result: string |}> client config HttpMethod.Post "/test" (Some "{}")
+        let req = handler.LastRequest.Value
+        Assert.Equal(Version(1, 1), req.Version)
+    | Error e -> Assert.Fail($"Failed to create test config: {e}")
+}
+
+[<Fact>]
+let ``sendRequestWithMethod with body None does not set content`` () = async {
+    let json = """{"Result":"Success"}"""
+    let handler = createMockHandler HttpStatusCode.OK json
+    let client = new HttpClient(handler)
+    match CommKey.create "key" with
+    | Ok key ->
+        let config = { BaseUrl = BaseUrl.defaultUrl; CommKey = key }
+        let! _ = sendRequestWithMethod<{| Result: string |}> client config HttpMethod.Get "/info" None
+        
+        // Verify no content
+        Assert.True(handler.LastRequestBody.IsNone)
+    | Error e -> Assert.Fail($"Failed to create test config: {e}")
+}
+
+// ── Convenience wrapper tests ──
+
+[<Fact>]
+let ``sendPost calls sendRequestWithMethod with POST and body`` () = async {
+    let json = """{"Result":"Created"}"""
+    let handler = createMockHandler HttpStatusCode.Created json
+    let client = new HttpClient(handler)
+    match CommKey.create "key" with
+    | Ok key ->
+        let config = { BaseUrl = BaseUrl.defaultUrl; CommKey = key }
+        let requestBody = """{"data":"value"}"""
+        let! result = sendPost<{| Result: string |}> client config "/endpoint" requestBody
+        match result with
+        | Ok r -> Assert.Equal("Created", r.Result)
+        | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
+        
+        Assert.Equal(Some HttpMethod.Post, handler.LastRequestMethod)
+        Assert.Equal(Some requestBody, handler.LastRequestBody)
+    | Error e -> Assert.Fail($"Failed to create test config: {e}")
+}
+
+[<Fact>]
+let ``sendPatch calls sendRequestWithMethod with PATCH and body`` () = async {
+    let json = """{"Result":"Updated"}"""
+    let handler = createMockHandler HttpStatusCode.OK json
+    let client = new HttpClient(handler)
+    match CommKey.create "key" with
+    | Ok key ->
+        let config = { BaseUrl = BaseUrl.defaultUrl; CommKey = key }
+        let requestBody = """{"value":"new"}"""
+        let! result = sendPatch<{| Result: string |}> client config "/endpoint" requestBody
+        match result with
+        | Ok r -> Assert.Equal("Updated", r.Result)
+        | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
+        
+        Assert.Equal(Some (HttpMethod("PATCH")), handler.LastRequestMethod)
+        Assert.Equal(Some requestBody, handler.LastRequestBody)
+    | Error e -> Assert.Fail($"Failed to create test config: {e}")
+}
+
+[<Fact>]
+let ``sendDelete calls sendRequestWithMethod with DELETE and no body`` () = async {
+    let json = """{"Result":"Deleted"}"""
+    let handler = createMockHandler HttpStatusCode.OK json
+    let client = new HttpClient(handler)
+    match CommKey.create "key" with
+    | Ok key ->
+        let config = { BaseUrl = BaseUrl.defaultUrl; CommKey = key }
+        let! result = sendDelete<{| Result: string |}> client config "/endpoint/123"
+        match result with
+        | Ok r -> Assert.Equal("Deleted", r.Result)
+        | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
+        
+        Assert.Equal(Some HttpMethod.Delete, handler.LastRequestMethod)
+        Assert.True(handler.LastRequestBody.IsNone)
     | Error e -> Assert.Fail($"Failed to create test config: {e}")
 }
