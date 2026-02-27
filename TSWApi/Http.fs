@@ -6,6 +6,7 @@ open System.Net.Http
 open System.Text.Json
 open System.Text.RegularExpressions
 open TSWApi.Types
+open FsToolkit.ErrorHandling
 
 /// HTTP client infrastructure for the TSW6 API.
 module Http =
@@ -62,10 +63,11 @@ module Http =
     /// <param name="baseUrl">The base URL (e.g., "http://192.168.1.50:31270").</param>
     /// <param name="commKey">The DTGCommKey authentication token.</param>
     let createConfigWithUrl (baseUrl: string) (commKey: string) : Result<ApiConfig, ApiError> =
-        match BaseUrl.create baseUrl, CommKey.create commKey with
-        | Ok url, Ok key -> Ok { BaseUrl = url; CommKey = key }
-        | Error e, _     -> Error e
-        | _, Error e     -> Error e
+        result {
+            let! url = BaseUrl.create baseUrl
+            let! key = CommKey.create commKey
+            return { BaseUrl = url; CommKey = key }
+        }
 
     /// <summary>
     /// Send an authenticated HTTP request to the TSW API with a specified HTTP method and optional body.
@@ -86,10 +88,8 @@ module Http =
                 request.Headers.Add("DTGCommKey", CommKey.value config.CommKey)
 
                 // Set body content if provided
-                match body with
-                | Some content ->
-                    request.Content <- new StringContent(content, Text.Encoding.UTF8, "application/json")
-                | None -> ()
+                body |> Option.iter (fun content ->
+                    request.Content <- new StringContent(content, Text.Encoding.UTF8, "application/json"))
 
                 let! response =
                     client.SendAsync(request) |> Async.AwaitTask
