@@ -7,6 +7,7 @@ open CounterApp.ApiExplorer
 open TSWApi.Types
 open TSWApi.Subscription
 open CounterApp.CommandMapping
+open TSWApi.Tests.TestHelpers
 
 // ─── Test helpers ───
 
@@ -18,11 +19,6 @@ let testInfo : InfoResponse =
           APIVersion = 1
           GameInstanceID = "test-id" }
       HttpRoutes = [] }
-
-let testConfig =
-    match TSWApi.Http.createConfig "test-key" with
-    | Ok config -> config
-    | Error _ -> failwith "test setup failed"
 
 let testElapsed = TimeSpan.FromMilliseconds(42.0)
 

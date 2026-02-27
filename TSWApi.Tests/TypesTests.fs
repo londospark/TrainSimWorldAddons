@@ -3,6 +3,7 @@ module TSWApi.Tests.TypesTests
 open Xunit
 open System.Text.Json
 open TSWApi.Types
+open TSWApi.Tests.TestHelpers
 
 let jsonOptions =
     let opts = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
@@ -52,28 +53,7 @@ let ``ApiConfig defaults to localhost`` () =
 
 // ── InfoResponse deserialization ──
 
-let infoJson = """
-{
-  "Meta": {
-    "Worker": "DTGCommWorkerRC",
-    "GameName": "Train Sim World 6®",
-    "GameBuildNumber": 749,
-    "APIVersion": 1,
-    "GameInstanceID": "A69D53564DFE46B7DE5AD7885CF0AA82"
-  },
-  "HttpRoutes": [
-    {
-      "Verb": "GET",
-      "Path": "/info",
-      "Description": "Get information about available commands."
-    },
-    {
-      "Verb": "GET",
-      "Path": "/list",
-      "Description": "List all valid paths for commands."
-    }
-  ]
-}"""
+let infoJson = TestJson.info
 
 [<Fact>]
 let ``InfoResponse deserializes Meta fields`` () =
@@ -148,23 +128,7 @@ let ``ListResponse Endpoints is None when absent`` () =
 
 // ── ListResponse with Endpoints ──
 
-let listWithEndpointsJson = """
-{
-  "Result": "Success",
-  "NodePath": "CurrentDrivableActor/AWS_TPWS_Service",
-  "NodeName": "AWS_TPWS_Service",
-  "Nodes": [],
-  "Endpoints": [
-    {
-      "Name": "Property.bIsAWS_CutIn",
-      "Writable": false
-    },
-    {
-      "Name": "Property.AWS_SunflowerState",
-      "Writable": false
-    }
-  ]
-}"""
+let listWithEndpointsJson = TestJson.listWithEndpoints
 
 [<Fact>]
 let ``ListResponse deserializes endpoints`` () =
@@ -182,13 +146,7 @@ let ``ListResponse nodes can be empty list`` () =
 
 // ── GetResponse deserialization ──
 
-let getResponseJson = """
-{
-  "Result": "Success",
-  "Values": {
-    "Value": 1
-  }
-}"""
+let getResponseJson = TestJson.getResponse
 
 [<Fact>]
 let ``GetResponse deserializes result`` () =

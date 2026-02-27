@@ -5,6 +5,19 @@ open CounterApp.CommandMapping
 
 module CommandMappingTests =
 
+    let private testMapping =
+        { EndpointName = "Property.TestEndpoint"
+          Interpreter = ValueInterpreter.Boolean
+          ToCommand = function
+              | Action.Activate -> Some (SerialCommand.Text "s")
+              | Action.Deactivate -> Some (SerialCommand.Text "c")
+              | _ -> None }
+
+    let private testCommandSet =
+        { Name = "Test Addon"
+          Mappings = Map.ofList [("Property.TestEndpoint", testMapping)]
+          ResetCommand = Some (SerialCommand.Text "c") }
+
     [<Fact>]
     let ``interpret Boolean - "1" returns Activate`` () =
         let result = interpret ValueInterpreter.Boolean "1"
@@ -89,56 +102,17 @@ module CommandMappingTests =
 
     [<Fact>]
     let ``translate - known endpoint with valid value returns Some command`` () =
-        let mapping =
-            { EndpointName = "Property.TestEndpoint"
-              Interpreter = ValueInterpreter.Boolean
-              ToCommand = function
-                  | Action.Activate -> Some (SerialCommand.Text "s")
-                  | Action.Deactivate -> Some (SerialCommand.Text "c")
-                  | _ -> None }
-        
-        let commandSet =
-            { Name = "Test Addon"
-              Mappings = Map.ofList [("Property.TestEndpoint", mapping)]
-              ResetCommand = Some (SerialCommand.Text "c") }
-        
-        let result = translate commandSet "Property.TestEndpoint" "1"
+        let result = translate testCommandSet "Property.TestEndpoint" "1"
         Assert.Equal(Some (SerialCommand.Text "s"), result)
 
     [<Fact>]
     let ``translate - known endpoint with invalid value returns None`` () =
-        let mapping =
-            { EndpointName = "Property.TestEndpoint"
-              Interpreter = ValueInterpreter.Boolean
-              ToCommand = function
-                  | Action.Activate -> Some (SerialCommand.Text "s")
-                  | Action.Deactivate -> Some (SerialCommand.Text "c")
-                  | _ -> None }
-        
-        let commandSet =
-            { Name = "Test Addon"
-              Mappings = Map.ofList [("Property.TestEndpoint", mapping)]
-              ResetCommand = Some (SerialCommand.Text "c") }
-        
-        let result = translate commandSet "Property.TestEndpoint" "invalid"
+        let result = translate testCommandSet "Property.TestEndpoint" "invalid"
         Assert.Equal(None, result)
 
     [<Fact>]
     let ``translate - unknown endpoint returns None`` () =
-        let mapping =
-            { EndpointName = "Property.TestEndpoint"
-              Interpreter = ValueInterpreter.Boolean
-              ToCommand = function
-                  | Action.Activate -> Some (SerialCommand.Text "s")
-                  | Action.Deactivate -> Some (SerialCommand.Text "c")
-                  | _ -> None }
-        
-        let commandSet =
-            { Name = "Test Addon"
-              Mappings = Map.ofList [("Property.TestEndpoint", mapping)]
-              ResetCommand = Some (SerialCommand.Text "c") }
-        
-        let result = translate commandSet "Property.UnknownEndpoint" "1"
+        let result = translate testCommandSet "Property.UnknownEndpoint" "1"
         Assert.Equal(None, result)
 
     [<Fact>]

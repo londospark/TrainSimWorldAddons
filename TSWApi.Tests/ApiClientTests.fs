@@ -2,47 +2,16 @@ module TSWApi.Tests.ApiClientTests
 
 open System.Net
 open System.Net.Http
-open System.Threading.Tasks
 open Xunit
 open TSWApi.Types
 open TSWApi.ApiClient
-
-// ── Helper: mock HttpMessageHandler ──
-
-type MockHandler(response: HttpResponseMessage) =
-    inherit HttpMessageHandler()
-    override _.SendAsync(_request, _cancellationToken) =
-        Task.FromResult(response)
-
-let mockClient (statusCode: HttpStatusCode) (content: string) =
-    let response = new HttpResponseMessage(statusCode)
-    response.Content <- new StringContent(content)
-    new HttpClient(new MockHandler(response))
-
-let testConfig =
-    match CommKey.create "test-key" with
-    | Ok key -> { BaseUrl = BaseUrl.defaultUrl; CommKey = key }
-    | Error e -> failwith $"Test config creation failed: {e}"
+open TSWApi.Tests.TestHelpers
 
 // ── getInfo ──
 
-let infoJson = """{
-  "Meta": {
-    "Worker": "DTGCommWorkerRC",
-    "GameName": "Train Sim World 6®",
-    "GameBuildNumber": 749,
-    "APIVersion": 1,
-    "GameInstanceID": "A69D53564DFE46B7DE5AD7885CF0AA82"
-  },
-  "HttpRoutes": [
-    { "Verb": "GET", "Path": "/info", "Description": "Get information about available commands." },
-    { "Verb": "GET", "Path": "/list", "Description": "List all valid paths for commands." }
-  ]
-}"""
-
 [<Fact>]
 let ``getInfo returns InfoResponse on success`` () = async {
-    let client = mockClient HttpStatusCode.OK infoJson
+    let client = mockClient HttpStatusCode.OK TestJson.info
     let! result = getInfo client testConfig
     match result with
     | Ok info ->
@@ -87,16 +56,7 @@ let ``listNodes returns root nodes when no path specified`` () = async {
     | Error e -> Assert.Fail($"Expected Ok, got Error: {e}")
 }
 
-let listWithEndpointsJson = """{
-  "Result": "Success",
-  "NodePath": "CurrentDrivableActor/AWS_TPWS_Service",
-  "NodeName": "AWS_TPWS_Service",
-  "Nodes": [],
-  "Endpoints": [
-    { "Name": "Property.bIsAWS_CutIn", "Writable": false },
-    { "Name": "Property.AWS_SunflowerState", "Writable": false }
-  ]
-}"""
+let listWithEndpointsJson = TestJson.listWithEndpoints
 
 [<Fact>]
 let ``listNodes returns endpoints when path specified`` () = async {
@@ -113,10 +73,7 @@ let ``listNodes returns endpoints when path specified`` () = async {
 
 // ── getValue ──
 
-let getJson = """{
-  "Result": "Success",
-  "Values": { "Value": 1 }
-}"""
+let getJson = TestJson.getResponse
 
 [<Fact>]
 let ``getValue returns GetResponse`` () = async {

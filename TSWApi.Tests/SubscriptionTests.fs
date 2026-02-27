@@ -4,53 +4,10 @@ open System
 open System.Net
 open System.Net.Http
 open System.Threading
-open System.Threading.Tasks
 open Xunit
 open TSWApi.Types
 open TSWApi.Subscription
-
-// ── Mock infrastructure ──
-
-/// Handler that calls a function for each request, enabling sequential/dynamic responses.
-type CallbackMockHandler(responseProvider: int -> HttpResponseMessage) =
-    inherit HttpMessageHandler()
-    let mutable callCount = 0
-
-    override _.SendAsync(_request, _cancellationToken) =
-        let idx = Interlocked.Increment(&callCount)
-        Task.FromResult(responseProvider idx)
-
-    member _.CallCount = callCount
-
-let makeResponse (statusCode: HttpStatusCode) (content: string) =
-    let resp = new HttpResponseMessage(statusCode)
-    resp.Content <- new StringContent(content)
-    resp
-
-let valueJson (v: string) =
-    $"""{{ "Result": "Success", "Values": {{ "Value": {v} }} }}"""
-
-let constantClient (json: string) =
-    new HttpClient(new CallbackMockHandler(fun _ -> makeResponse HttpStatusCode.OK json))
-
-let sequentialClient (jsons: string list) =
-    new HttpClient(
-        new CallbackMockHandler(fun idx ->
-            let i = min (idx - 1) (jsons.Length - 1)
-            makeResponse HttpStatusCode.OK jsons[i])
-    )
-
-let errorClient () =
-    new HttpClient(
-        new CallbackMockHandler(fun _ -> makeResponse HttpStatusCode.InternalServerError "Server Error")
-    )
-
-let testConfig =
-    match CommKey.create "test-key" with
-    | Ok key ->
-        { BaseUrl = BaseUrl.defaultUrl
-          CommKey = key }
-    | Error e -> failwith $"Test config creation failed: {e}"
+open TSWApi.Tests.TestHelpers
 
 let testAddress =
     { NodePath = "TestNode"
