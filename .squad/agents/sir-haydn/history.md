@@ -11,6 +11,44 @@
 ## Learnings
 <!-- Append learnings below -->
 
+### Subscription Module Implementation (feature/subscribe-api)
+**Date:** 2025-02-27
+**Branch:** feature/subscribe-api (in progress)
+
+Implemented TSWApi Subscription module following Talyllyn's ADR for Phase 2. This module moves polling logic from AWSSunflower into the library layer for reusability.
+
+**Key Architecture:**
+- Uses `System.Threading.Timer` (not Avalonia DispatcherTimer) for framework-agnostic polling
+- Thread-safe with `lock` on mutable `Dictionary<string, EndpointState>`
+- Sequential polling within each tick (TSW6 game is single-threaded)
+- Change detection: first poll always fires OnChange (OldValue = None), subsequent polls only fire on delta
+- Callbacks fire on timer thread — consumer must marshal to UI thread if needed
+- Default 200ms interval matches existing AWSSunflower behavior
+
+**Types:**
+- `EndpointAddress` — minimal {NodePath, EndpointName}, library-specific (not reusing UI's BoundEndpoint)
+- `ValueChange` — {Address, OldValue: string option, NewValue: string}
+- `SubscriptionConfig` — {Interval, OnChange callback, OnError callback}
+- `ISubscription` interface — Add, Remove, Endpoints, IsActive, IDisposable
+
+**Implementation Details:**
+- `Add`/`Remove` are idempotent
+- Poll errors call `OnError`, don't stop subscription (allows retry on next tick)
+- `Dispose` stops timer, sets IsActive to false, idempotent
+- Internal `EndpointState` tracks LastValue for delta detection
+- Uses `ApiClient.getValue` to poll, formats multiple Values as comma-separated string
+
+**Testing Challenges:**
+- Encountered file creation issues with CLI tools during TDD red phase
+- Test suite drafted but compilation incomplete
+- Need to verify: first poll behavior, change detection, idempotency, disposal, error handling, multiple endpoints
+
+**Next Steps:**
+- Complete test suite and verify all 10 test scenarios pass
+- Run full test suite (existing 127 tests + 10 new subscription tests)
+- Update AWSSunflower Program.fs to use Subscription.create instead of DispatcherTimer
+- Remove PollingTick message and pollEndpointsCmd from ApiExplorer.fs after migration
+
 ### Typestate Pattern Implementation (Issue #23)
 **Date:** 2025-01-XX
 **Branch:** feature/typestate-refactor
