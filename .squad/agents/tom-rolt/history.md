@@ -84,3 +84,20 @@
 - 127 tests passing (no test changes needed — all removed fields were UI-only)
 
 **Status:** ✅ Completed & tested
+
+### Global Exception Handling (2026-02-25)
+**Date:** 2026-02-25  
+**Task:** Add debug/release exception handling split to AWSSunflower
+
+**Key Changes:**
+- **ErrorHandling module** in Program.fs with `showErrorDialog`, `setupGlobalExceptionHandlers`, `safeDispatch`
+- **Debug mode:** `#if DEBUG` — exceptions propagate normally, full stack traces in console
+- **Release mode:** Three layers of protection:
+  1. `AppDomain.CurrentDomain.UnhandledException` — catches fatal unhandled exceptions, logs to stderr, shows dialog
+  2. `TaskScheduler.UnobservedTaskException` — catches async task exceptions, calls `SetObserved()` to prevent crash
+  3. `safeDispatch` wrapper — wraps ALL Elmish dispatch calls (timers, port polling, view) in try/catch
+- **User-friendly dialog:** Simple Avalonia Window with message + OK button, posted via `Dispatcher.UIThread.Post`
+- **safeDispatch is the key layer** — catches NRE-in-update-chain bugs at the dispatch boundary before they become unhandled
+- `TaskScheduler.UnobservedTaskException.SetObserved()` prevents GC finalizer re-throw
+
+**Status:** ✅ Completed & tested

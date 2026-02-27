@@ -11,7 +11,66 @@ open Avalonia.FuncUI.DSL
 open Avalonia.Threading
 open global.Elmish
 open Avalonia.FuncUI.Elmish.ElmishHook
+open System.Threading.Tasks
 open CounterApp.SerialPortModule
+
+module ErrorHandling =
+
+    let showErrorDialog (message: string) =
+        try
+            Dispatcher.UIThread.Post(fun () ->
+                try
+                    let window = Window()
+                    window.Title <- "AWS Sunflower — Error"
+                    window.Width <- 420.0
+                    window.Height <- 180.0
+                    window.WindowStartupLocation <- WindowStartupLocation.CenterScreen
+                    let panel = StackPanel()
+                    panel.Margin <- Thickness(20.0)
+                    panel.VerticalAlignment <- Avalonia.Layout.VerticalAlignment.Center
+                    let text = TextBlock()
+                    text.Text <- message
+                    text.TextWrapping <- Avalonia.Media.TextWrapping.Wrap
+                    text.Margin <- Thickness(0.0, 0.0, 0.0, 16.0)
+                    panel.Children.Add(text)
+                    let btn = Button()
+                    btn.Content <- "OK"
+                    btn.HorizontalAlignment <- Avalonia.Layout.HorizontalAlignment.Center
+                    btn.Click.Add(fun _ -> window.Close())
+                    panel.Children.Add(btn)
+                    window.Content <- panel
+                    window.Show()
+                with _ -> ()
+            )
+        with _ -> ()
+
+    let setupGlobalExceptionHandlers () =
+#if DEBUG
+        () // Debug: let exceptions propagate with full stack traces
+#else
+        AppDomain.CurrentDomain.UnhandledException.Add(fun args ->
+            let ex = args.ExceptionObject :?> Exception
+            eprintfn "[UNHANDLED EXCEPTION] %A" ex
+            showErrorDialog "An unexpected error occurred. The application will now close."
+        )
+
+        TaskScheduler.UnobservedTaskException.Add(fun args ->
+            eprintfn "[UNOBSERVED TASK EXCEPTION] %A" args.Exception
+            args.SetObserved()
+            showErrorDialog "An unexpected error occurred. The application will continue running."
+        )
+#endif
+
+    let safeDispatch (dispatch: 'msg -> unit) (msg: 'msg) =
+#if DEBUG
+        dispatch msg
+#else
+        try
+            dispatch msg
+        with ex ->
+            eprintfn "[DISPATCH ERROR] %A" ex
+            showErrorDialog "An unexpected error occurred. The application will continue running."
+#endif
 
 module Main =
 
@@ -19,12 +78,13 @@ module Main =
         Component(fun ctx ->
             let writableModel = ctx.useState (ApiExplorer.init (), true)
             let model, dispatch = ctx.useElmish(writableModel, ApiExplorer.update)
+            let safe = ErrorHandling.safeDispatch dispatch
 
             // Port polling effect
             ctx.useEffect(
                 handler = (fun _ ->
                     let polling = startPortPolling (fun ports ->
-                        dispatch (ApiExplorer.PortsUpdated ports)
+                        safe (ApiExplorer.PortsUpdated ports)
                     )
                     { new IDisposable with member _.Dispose() = polling.Dispose() }
                 ),
@@ -37,14 +97,14 @@ module Main =
                     let timer = DispatcherTimer()
                     timer.Interval <- TimeSpan.FromMilliseconds(200.0)
                     timer.Tick.Add(fun _ ->
-                        if writableModel.Current.IsPolling then dispatch ApiExplorer.PollingTick
+                        if writableModel.Current.IsPolling then safe ApiExplorer.PollingTick
                     )
                     timer.Start()
 
                     let locoTimer = DispatcherTimer()
                     locoTimer.Interval <- TimeSpan.FromSeconds(1.0)
                     locoTimer.Tick.Add(fun _ ->
-                        if writableModel.Current.ApiConfig.IsSome then dispatch ApiExplorer.DetectLoco
+                        if writableModel.Current.ApiConfig.IsSome then safe ApiExplorer.DetectLoco
                     )
                     locoTimer.Start()
 
@@ -54,7 +114,7 @@ module Main =
                 triggers = [ EffectTrigger.AfterInit ]
             )
 
-            ApiExplorer.mainView model dispatch
+            ApiExplorer.mainView model safe
         )
 
 type MainWindow() =
@@ -86,6 +146,7 @@ module Program =
 
     [<EntryPoint>]
     let main(args: string[]) =
+        ErrorHandling.setupGlobalExceptionHandlers ()
         AppBuilder
             .Configure<App>()
             .UsePlatformDetect()
