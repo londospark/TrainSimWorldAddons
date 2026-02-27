@@ -11,6 +11,26 @@
 ## Learnings
 <!-- Append learnings below -->
 
+### API Surface Cleanup — R-S1, R-S2 (refactor/api-surface)
+**Date:** 2025-07-23
+**Branch:** refactor/api-surface
+
+Applied two refactoring items to reduce nesting and eliminate duplication:
+
+**R-S1: Flatten getUsbPortMappings (PortDetection.fs)**
+- Extracted `tryGetInstancePort` — handles a single registry instance key, returns `(portName, UsbDeviceInfo) option`
+- Extracted `tryGetPortMappings` — iterates instances for one device class, returns seq of mappings
+- `getUsbPortMappings` now simply opens the USB registry key and collects all mappings via `Seq.collect`
+- Nesting reduced from 6 levels to 2-3 levels
+- Changed from `Array` computation expression + `Map.ofArray` to `Seq.collect` + `Map.ofSeq` for cleaner composition
+
+**R-S2: Extract nameMatches helper (TreeNavigation.fs)**
+- Extracted `nameMatches : string -> Node -> bool` private helper
+- Replaced duplicated inline lambda in both `[ name ]` and `name :: rest` branches of `getNodeAtPath`
+- Pattern: `nodes |> List.tryFind (nameMatches name)`
+
+**Outcome:** 200 tests pass (183 TSWApi + 17 AWSSunflower). Build clean, zero warnings.
+
 ### Subscription Module Implementation (feature/subscribe-api)
 **Date:** 2025-02-27
 **Branch:** feature/subscribe-api (in progress)
