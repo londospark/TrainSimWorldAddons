@@ -13,6 +13,8 @@ open global.Elmish
 open Avalonia.FuncUI.Elmish.ElmishHook
 open System.Threading.Tasks
 open CounterApp.PortDetection
+open CounterApp.ApiExplorerUpdate
+open CounterApp.ApiExplorerViews
 
 module ErrorHandling =
 
@@ -77,7 +79,7 @@ module Main =
     let view () =
         Component(fun ctx ->
             let writableModel = ctx.useState (ApiExplorer.init (), true)
-            let model, dispatch = ctx.useElmish(writableModel, ApiExplorer.update)
+            let model, dispatch = ctx.useElmish(writableModel, ApiExplorerUpdate.update)
             let safe = ErrorHandling.safeDispatch dispatch
 
             // Port polling effect
@@ -114,7 +116,7 @@ module Main =
                 triggers = [ EffectTrigger.AfterInit ]
             )
 
-            ApiExplorer.mainView model safe
+            ApiExplorerViews.mainView model safe
         )
 
 type MainWindow() =
