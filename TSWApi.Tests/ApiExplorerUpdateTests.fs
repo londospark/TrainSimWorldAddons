@@ -4,6 +4,7 @@ open System
 open Xunit
 open CounterApp
 open CounterApp.ApiExplorer
+open CounterApp.ApiExplorerUpdate
 open TSWApi.Types
 open TSWApi.Subscription
 open CounterApp.CommandMapping

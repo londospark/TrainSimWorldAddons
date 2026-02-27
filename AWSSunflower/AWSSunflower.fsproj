@@ -18,6 +18,10 @@
         <Compile Include="PortDetection.fs" />
         <Compile Include="CommandMapping.fs" />
         <Compile Include="ApiExplorer.fs" />
+        <Compile Include="ApiExplorerHelpers.fs" />
+        <Compile Include="ApiExplorerCommands.fs" />
+        <Compile Include="ApiExplorerUpdate.fs" />
+        <Compile Include="ApiExplorerViews.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 
