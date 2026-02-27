@@ -7,7 +7,6 @@ open Avalonia.Layout
 open Avalonia.Media
 open CounterApp.ApplicationScreen
 open CounterApp.ApplicationScreenHelpers
-open CounterApp.ApplicationScreenCommands
 open global.Elmish
 
 module BindingsPanel =
@@ -43,7 +42,7 @@ module BindingsPanel =
             |> Option.defaultValue []
         Border.create [
             Border.dock Dock.Bottom
-            Border.borderBrush (SolidColorBrush(Color.Parse(AppColors.border)))
+            Border.borderBrush (AppColors.border)
             Border.borderThickness (0.0, 1.0, 0.0, 0.0)
             Border.maxHeight 200.0
             Border.child (
@@ -62,14 +61,14 @@ module BindingsPanel =
                                 ]
                                 TextBlock.create [
                                     TextBlock.text (
-                                        if currentSubscription.Value |> Option.map (fun s -> s.IsActive) |> Option.defaultValue false
+                                        if model.IsSubscriptionActive
                                         then "● Live"
                                         else "○ Idle"
                                     )
                                     TextBlock.fontSize 10.0
                                     TextBlock.foreground (
-                                        if currentSubscription.Value |> Option.map (fun s -> s.IsActive) |> Option.defaultValue false
-                                        then SolidColorBrush(Color.Parse(AppColors.connected))
+                                        if model.IsSubscriptionActive
+                                        then AppColors.connected
                                         else SolidColorBrush Colors.Gray
                                     )
                                 ]

@@ -45,7 +45,7 @@ module TreeBrowser =
         Border.create [
             Border.dock Dock.Left
             Border.width 300.0
-            Border.borderBrush (SolidColorBrush(Color.Parse(AppColors.border)))
+            Border.borderBrush (AppColors.border)
             Border.borderThickness (0.0, 0.0, 1.0, 0.0)
             Border.child (
                 DockPanel.create [

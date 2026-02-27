@@ -25,6 +25,7 @@ let testModel () =
       CurrentLoco = None
       BindingsConfig = { Version = 1; Locos = [] }
       PollingValues = Map.empty
+      IsSubscriptionActive = false
       ActiveAddon = Some AWSSunflowerCommands.commandSet
       SerialPort = None
       SerialPortName = None }

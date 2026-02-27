@@ -94,7 +94,8 @@ let ``Disconnect resets all state`` () =
     Assert.True(model.SelectedNode.IsNone)
     Assert.True(model.EndpointValues.IsEmpty)
     Assert.True(model.LastResponseTime.IsNone)
-    Assert.True(cmd |> List.isEmpty)
+    // cmd contains a disposal effect (Cmd.ofEffect) — non-empty is correct
+    Assert.False(cmd |> List.isEmpty)
 
 // ─── RootNodesLoaded ───
 

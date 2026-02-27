@@ -22,9 +22,9 @@ module SerialPortPanel =
                     TextBlock.fontSize 10.0
                     TextBlock.foreground (
                         match model.SerialConnectionState with
-                        | ConnectionState.Connected _ -> SolidColorBrush(Color.Parse(AppColors.connected))
-                        | ConnectionState.Error _ -> SolidColorBrush(Color.Parse(AppColors.error))
-                        | ConnectionState.Connecting -> SolidColorBrush(Color.Parse(AppColors.warning))
+                        | ConnectionState.Connected _ -> AppColors.connected
+                        | ConnectionState.Error _ -> AppColors.error
+                        | ConnectionState.Connecting -> AppColors.warning
                         | _ -> SolidColorBrush Colors.Gray
                     )
                 ]
@@ -50,8 +50,8 @@ module SerialPortPanel =
         Border.create [
             Border.dock Dock.Right
             Border.width 200.0
-            Border.background (SolidColorBrush(Color.Parse(AppColors.panelBg)))
-            Border.borderBrush (SolidColorBrush(Color.Parse(AppColors.border)))
+            Border.background (AppColors.panelBg)
+            Border.borderBrush (AppColors.border)
             Border.borderThickness (1.0, 0.0, 0.0, 0.0)
             Border.padding 10.0
             Border.child (
@@ -106,8 +106,8 @@ module SerialPortPanel =
                             Button.fontSize 11.0
                             Button.foreground (
                                 match model.SerialConnectionState with
-                                | ConnectionState.Connected _ -> SolidColorBrush(Color.Parse(AppColors.connected))
-                                | ConnectionState.Error _ -> SolidColorBrush(Color.Parse(AppColors.error))
+                                | ConnectionState.Connected _ -> AppColors.connected
+                                | ConnectionState.Error _ -> AppColors.error
                                 | _ -> SolidColorBrush Colors.White
                             )
                         ]
@@ -118,7 +118,7 @@ module SerialPortPanel =
                         // Separator
                         Border.create [
                             Border.height 1.0
-                            Border.background (SolidColorBrush(Color.Parse(AppColors.border)))
+                            Border.background (AppColors.border)
                             Border.margin (0.0, 4.0)
                         ]
 

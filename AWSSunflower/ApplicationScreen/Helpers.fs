@@ -1,6 +1,7 @@
 namespace CounterApp
 
 open TSWApi
+open Avalonia.Media
 
 module ApplicationScreenHelpers =
 
@@ -74,9 +75,9 @@ module ApplicationScreenHelpers =
             )
 
     module AppColors =
-        let connected = "#00AA00"
-        let error = "#FF5555"
-        let warning = "#FFAA00"
-        let panelBg = "#2A2A2A"
-        let border = "#3A3A3A"
-        let info = "#55AAFF"
+        let connected : IBrush = SolidColorBrush(Color.Parse("#00AA00"))
+        let error : IBrush = SolidColorBrush(Color.Parse("#FF5555"))
+        let warning : IBrush = SolidColorBrush(Color.Parse("#FFAA00"))
+        let panelBg : IBrush = SolidColorBrush(Color.Parse("#2A2A2A"))
+        let border : IBrush = SolidColorBrush(Color.Parse("#3A3A3A"))
+        let info : IBrush = SolidColorBrush(Color.Parse("#55AAFF"))
