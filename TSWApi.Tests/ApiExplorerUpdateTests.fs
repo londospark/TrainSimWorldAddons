@@ -625,3 +625,71 @@ let ``ToggleExpand on pre-populated child triggers API expand`` () =
     // ToggleExpand on grandchild should trigger API call (case 2: Children.IsNone)
     let _, cmd = update (ToggleExpand "Player/TC0") initial
     Assert.False(cmd |> List.isEmpty) // Should trigger API expand
+
+// ─── Bug fix: UnbindEndpoint clears PollingValues and sends serial clear ───
+
+[<Fact>]
+let ``UnbindEndpoint removes key from PollingValues`` () =
+    let model =
+        { connectedWithLoco () with
+            PollingValues = Map.ofList [("A.B", "1"); ("C.D", "0")]
+            BindingsConfig =
+                { Version = 1
+                  Locos = [ { LocoName = "TestLoco_123"
+                              BoundEndpoints = [ { NodePath = "A"; EndpointName = "B"; Label = "A.B" }
+                                                 { NodePath = "C"; EndpointName = "D"; Label = "C.D" } ] } ] } }
+    let newModel, _ = update (UnbindEndpoint ("A", "B")) model
+    // The unbound endpoint key should be removed from PollingValues
+    Assert.True(Map.tryFind "A.B" newModel.PollingValues |> Option.isNone)
+    // The other endpoint key should remain
+    Assert.Equal(Some "0", Map.tryFind "C.D" newModel.PollingValues)
+
+[<Fact>]
+let ``UnbindEndpoint returns serial clear command`` () =
+    let model =
+        { connectedWithLoco () with
+            PollingValues = Map.ofList [("A.B", "1")]
+            BindingsConfig =
+                { Version = 1
+                  Locos = [ { LocoName = "TestLoco_123"
+                              BoundEndpoints = [ { NodePath = "A"; EndpointName = "B"; Label = "A.B" } ] } ] } }
+    let _, cmd = update (UnbindEndpoint ("A", "B")) model
+    // Should return a command (serial clear), not Cmd.none
+    Assert.False(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``UnbindEndpoint with no loco is no-op`` () =
+    let model = { connectedModel () with CurrentLoco = None; BindingsConfig = { Version = 1; Locos = [] } }
+    let newModel, cmd = update (UnbindEndpoint ("A", "B")) model
+    Assert.True(cmd |> List.isEmpty)
+
+// ─── Bug fix: LocoDetected sends serial clear on loco change ───
+
+[<Fact>]
+let ``LocoDetected with loco change returns serial clear command`` () =
+    let model =
+        { connectedModel () with
+            CurrentLoco = Some "OldLoco"
+            PollingValues = Map.ofList [("k", "v")]
+            BindingsConfig = { Version = 1; Locos = [] } }
+    let _, cmd = update (LocoDetected "NewLoco") model
+    // Should return a command (loadRootNodes + serial clear)
+    Assert.False(cmd |> List.isEmpty)
+
+[<Fact>]
+let ``LocoDetected same loco returns no command`` () =
+    let model =
+        { connectedModel () with
+            CurrentLoco = Some "SameLoco"
+            PollingValues = Map.ofList [("k", "v")]
+            BindingsConfig = { Version = 1; Locos = [] } }
+    let _, cmd = update (LocoDetected "SameLoco") model
+    Assert.True(cmd |> List.isEmpty)
+
+// ─── Bug fix: Null-safe endpoint handling ───
+
+[<Fact>]
+let ``GetEndpointValue with empty path does not crash`` () =
+    let model = connectedModel ()
+    let newModel, cmd = update (GetEndpointValue "") model
+    Assert.False(cmd |> List.isEmpty)

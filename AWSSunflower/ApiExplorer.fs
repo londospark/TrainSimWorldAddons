@@ -122,6 +122,9 @@ module ApiExplorer =
     let private stripRootPrefix (path: string) =
         if not (isNull path) && path.StartsWith("Root/") then path.Substring(5) else path
 
+    /// Guard against CLR null strings from JSON deserialization
+    let private nullSafe (s: string) = if isNull s then "" else s
+
     let private effectiveName (n: TSWApi.Types.Node) =
         if not (System.String.IsNullOrEmpty n.NodeName) then n.NodeName
         elif not (System.String.IsNullOrEmpty n.Name) then n.Name
@@ -404,7 +407,11 @@ module ApiExplorer =
             | Some locoName ->
                 let newConfig = BindingPersistence.removeBinding model.BindingsConfig locoName nodePath endpointName
                 BindingPersistence.save newConfig
-                { model with BindingsConfig = newConfig }, Cmd.none
+                let key = sprintf "%s.%s" nodePath endpointName
+                { model with
+                    BindingsConfig = newConfig
+                    PollingValues = Map.remove key model.PollingValues },
+                Cmd.ofMsg (SendSerialCommand "c")
             | None -> model, Cmd.none
 
         | DetectLoco ->
@@ -430,9 +437,12 @@ module ApiExplorer =
                     TreeRoot = []
                     SelectedNode = None
                     EndpointValues = Map.empty },
-                match model.ApiConfig with
-                | Some config -> loadRootNodesCmd config
-                | None -> Cmd.none
+                Cmd.batch [
+                    match model.ApiConfig with
+                    | Some config -> loadRootNodesCmd config
+                    | None -> Cmd.none
+                    Cmd.ofMsg (SendSerialCommand "c")
+                ]
 
         | LocoDetectError _ ->
             model, Cmd.none
@@ -769,16 +779,18 @@ module ApiExplorer =
                                 ]
                             ]
                         | Some node ->
-                            match node.Endpoints with
+                            // Guard against CLR null from JSON deserialization
+                            let endpoints = node.Endpoints |> Option.bind (fun eps -> if isNull (eps :> obj) then None else Some eps)
+                            match endpoints with
                             | Some endpoints when endpoints.Length > 0 ->
                                 [
                                     TextBlock.create [
-                                        TextBlock.text (sprintf "Node: %s" node.Name)
+                                        TextBlock.text (sprintf "Node: %s" (nullSafe node.Name))
                                         TextBlock.fontSize 16.0
                                         TextBlock.fontWeight FontWeight.Bold
                                     ]
                                     TextBlock.create [
-                                        TextBlock.text (sprintf "Path: %s" node.Path)
+                                        TextBlock.text (sprintf "Path: %s" (nullSafe node.Path))
                                         TextBlock.fontSize 11.0
                                         TextBlock.foreground (SolidColorBrush Colors.Gray)
                                     ]
@@ -790,6 +802,8 @@ module ApiExplorer =
                                     ]
 
                                     yield! endpoints |> List.map (fun ep ->
+                                        let epName = nullSafe ep.Name
+                                        let nodePath = nullSafe node.Path
                                         StackPanel.create [
                                             StackPanel.orientation Orientation.Vertical
                                             StackPanel.margin (0.0, 5.0, 0.0, 5.0)
@@ -799,7 +813,7 @@ module ApiExplorer =
                                                     StackPanel.spacing 10.0
                                                     StackPanel.children [
                                                         TextBlock.create [
-                                                            TextBlock.text ep.Name
+                                                            TextBlock.text epName
                                                             TextBlock.fontSize 12.0
                                                             TextBlock.fontWeight FontWeight.SemiBold
                                                         ]
@@ -812,7 +826,7 @@ module ApiExplorer =
                                                         Button.create [
                                                             Button.content "Get Value"
                                                             Button.onClick (fun _ ->
-                                                                dispatch (GetEndpointValue (sprintf "%s.%s" node.Path ep.Name))
+                                                                dispatch (GetEndpointValue (sprintf "%s.%s" nodePath epName))
                                                             )
                                                             Button.fontSize 10.0
                                                             Button.padding (5.0, 2.0)
@@ -820,7 +834,7 @@ module ApiExplorer =
                                                         Button.create [
                                                             Button.content "📌 Bind"
                                                             Button.onClick (fun _ ->
-                                                                dispatch (BindEndpoint (node.Path, ep.Name))
+                                                                dispatch (BindEndpoint (nodePath, epName))
                                                             )
                                                             Button.fontSize 10.0
                                                             Button.padding (5.0, 2.0)
@@ -829,7 +843,7 @@ module ApiExplorer =
                                                     ]
                                                 ]
 
-                                                let fullPath = sprintf "%s.%s" node.Path ep.Name
+                                                let fullPath = sprintf "%s.%s" nodePath epName
                                                 match Map.tryFind fullPath model.EndpointValues with
                                                 | Some value ->
                                                     TextBox.create [
