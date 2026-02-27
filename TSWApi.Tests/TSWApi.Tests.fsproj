@@ -12,6 +12,7 @@
     <Compile Include="TreeNavigationTests.fs" />
     <Compile Include="SubscriptionTests.fs" />
     <Compile Include="ApiExplorerUpdateTests.fs" />
+    <Compile Include="CommandMappingTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -11,6 +11,30 @@
 ## Learnings
 <!-- Append learnings below -->
 
+### CommandMapping Abstraction Layer (2025-07-23)
+**Date:** 2025-07-23
+**Branch:** feature/command-abstraction
+
+Implemented the CommandMapping abstraction layer per Talyllyn's ADR to replace hardcoded serial command logic with extensible, type-safe abstraction.
+
+**Key Design Patterns:**
+- **Semantic Action Layer:** `Action` DU (Activate/Deactivate/SetValue/Pulse) separates "what happened" from "what to send"
+- **ValueInterpreter:** Boolean uses EXACT match ("1"/"True"/"true" only) — fixes existing `value.Contains("1")` bug that matched "10", "21", etc.
+- **Option-based Pipeline:** `translate : AddonCommandSet -> string -> string -> SerialCommand option` composes lookup → interpret → map with Option.bind
+- **Concrete Addons:** `AWSSunflowerCommands.commandSet` defines endpoint mappings, interpreter, and reset command
+
+**Test-Driven Development:**
+- Wrote all 29 tests FIRST (per TDD charter)
+- Tests cover: Boolean exact match, Continuous float parsing, Mapped enum, translate pipeline, toWireString, resetCommand
+- Integration tests verify AWSSunflower addon: "1" → "s", "0" → "c", "10" → None (bug fix!), reset → "c"
+- All 156 tests pass (87 existing + 29 new)
+
+**File Structure:**
+- `AWSSunflower/CommandMapping.fs` — added after SerialPort.fs, before Components.fs in compile order
+- `TSWApi.Tests/CommandMappingTests.fs` — tests in existing test project (already references AWSSunflower.fsproj)
+
+**Status:** ✅ Ready for merge
+
 ### Http.fs Typestate Refactor (Issue #23)
 **Date:** 2025-01-XX
 **Branch:** feature/typestate-refactor
