@@ -119,3 +119,67 @@
 - 190 tests passing (17 AWSSunflower.Tests + 173 TSWApi.Tests)
 
 **Status:** ✅ Completed & tested
+
+### UI Cleanup Refactoring (2026-02-27)
+**Date:** 2026-02-27  
+**Task:** Apply R-T1 through R-T9 refactoring items to AWSSunflower
+
+**Key Changes:**
+- **R-T9:** Deleted dead `Components.fs` (confirmed zero references via grep) and removed Compile entry from fsproj
+- **R-T1:** Removed 3 unused serial message cases (`ConnectSerial`, `SerialConnected`, `SerialError`) and their handlers plus `connectSerialCmd`. Kept `DisconnectSerial` because TSWApi.Tests has a test for it
+- **R-T2:** Extracted `resetSerialCmd` helper — eliminates duplicated 4-line pipeline in `UnbindEndpoint` and `LocoDetected`
+- **R-T3:** Extracted `getLocoBindings` helper — eliminates triplicated 3-line pipeline in `BindEndpoint`, `LocoDetected`, `bindingsPanel`
+- **R-T4:** Extracted `endpointKey` helper — replaces 5 inline `sprintf "%s.%s"` calls
+- **R-T5:** Extracted `timedApiCall` helper — simplifies `connectCmd`, `loadRootNodesCmd`, `expandNodeCmd`, `getValueCmd` by removing duplicated start/elapsed/match boilerplate
+- **R-T6:** Added `AppColors` module with 6 named constants (`connected`, `error`, `warning`, `panelBg`, `border`, `info`) — replaces 16 inline hex strings
+- **R-T7:** Flattened `BindEndpoint` handler from 4 nesting levels to 2 using combined match on `model.CurrentLoco, model.ApiConfig`
+- **R-T8:** Extracted `isSerialConnected` helper — replaces 3 inline pattern matches in view code
+
+**Learnings:**
+- `ApiResult<'T>` is a type alias for `Result<'T, ApiError>` in TSWApi.Types — useful for generic API call helpers
+- When flattening nested matches, verify that early-exit cases preserve original behavior (e.g., BindEndpoint's save-even-when-API-disconnected was safely removable since the UI can't trigger it in that state)
+- `DisconnectSerial` can't be removed without updating TSWApi.Tests — note for future dead-code passes
+
+**Status:** ✅ Completed & tested — 200 tests pass (17 + 183)
+
+### ApiExplorer.fs Decomposition (2026-02-28)
+**Date:** 2026-02-28  
+**Task:** Split 1046-line ApiExplorer.fs into 5 focused modules per Talyllyn's ADR
+
+**Key Changes:**
+- **ApiExplorer.fs** (~97 lines): Model type, Msg union, init function — the MVU contract
+- **ApiExplorerHelpers.fs** (~80 lines): Pure functions — `stripRootPrefix`, `nullSafe`, `effectiveName`, `mapNodeToTreeState`, `endpointKey`, `getLocoBindings`, `isSerialConnected`, `updateTreeNode`, `findNode`, `filterTree`
+- **ApiExplorerCommands.fs** (~140 lines): Shared mutable state (`httpClient`, `currentSubscription`) + all async Elmish commands
+- **ApiExplorerUpdate.fs** (~210 lines): The `update` function with all Msg pattern matches
+- **ApiExplorerViews.fs** (~530 lines): `AppColors` module + all 7 view functions + `mainView` entry point
+- **Program.fs:** Updated refs to `ApiExplorerUpdate.update` and `ApiExplorerViews.mainView`
+- **Tests:** Added `open CounterApp.ApiExplorerUpdate` to test file
+- **Visibility:** Removed `private` from all cross-module functions (now assembly-internal via default F# access)
+
+**Learnings:**
+- F# compile order enforces dependency direction — ApiExplorer → Helpers → Commands → Update → Views → Program
+- `open TSWApi.Subscription` needed in both ApiExplorer.fs (for `ValueChange` type in Msg) and ApiExplorerUpdate.fs (for `Subscription.endpointPath`)
+- `bindingsPanel` reads `currentSubscription.Value` directly from Commands module — noted as MVU anti-pattern for future cleanup
+- `InternalsVisibleTo` attribute already covers test assembly access to internal functions
+
+**Status:** ✅ Completed & tested — 200 tests pass (17 + 183)
+
+### ApplicationScreen Refactor (2026-02-28)
+**Date:** 2026-02-28  
+**Task:** Rename ApiExplorer → ApplicationScreen, move files into ApplicationScreen/ folder, split views into component files
+
+**Key Changes:**
+- **Renamed modules:** ApiExplorer → ApplicationScreen, ApiExplorerHelpers → ApplicationScreenHelpers, ApiExplorerCommands → ApplicationScreenCommands, ApiExplorerUpdate → ApplicationScreenUpdate
+- **New folder:** All ApplicationScreen files now in `AWSSunflower/ApplicationScreen/`
+- **View decomposition:** Split ApiExplorerViews.fs (530 lines) into 7 component files: ConnectionPanel, StatusBar, TreeBrowser, EndpointViewer, BindingsPanel, SerialPortPanel, MainView
+- **Flattened nesting:** Extracted `renderEndpoint`, `renderBinding`, `serialStatus` helper functions from deeply nested view code
+- **AppColors:** Moved from `module private AppColors` in views to non-private `module AppColors` in Helpers.fs
+- **Test file:** Renamed ApiExplorerUpdateTests.fs → ApplicationScreenUpdateTests.fs with updated module/opens
+
+**Learnings:**
+- When splitting view files into components, each component needs its own set of Avalonia opens — don't forget `Avalonia.FuncUI.Types` for files using `:> IView` casts
+- `open TSWApi` is needed in component files that directly reference `Endpoint`, `TreeNodeState`, or `ApiConnectionState` types
+- MainView composition file is very small (~25 lines) — just opens all component modules and calls their functions in DockPanel order
+- BindingsPanel is the only component that needs `open CounterApp.ApplicationScreenCommands` (for `currentSubscription` read)
+
+**Status:** ✅ Completed & tested — 200 tests pass (17 + 183)

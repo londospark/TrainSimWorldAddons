@@ -5,12 +5,12 @@ open System.Net.Http
 open TSWApi
 open TSWApi.Subscription
 open CounterApp.CommandMapping
-open CounterApp.ApiExplorer
-open CounterApp.ApiExplorerHelpers
+open CounterApp.ApplicationScreen
+open CounterApp.ApplicationScreenHelpers
 open global.Elmish
 open Avalonia.Threading
 
-module ApiExplorerCommands =
+module ApplicationScreenCommands =
 
     // ─── Shared HttpClient & Subscription ───
 

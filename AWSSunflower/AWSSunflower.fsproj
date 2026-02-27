@@ -17,11 +17,17 @@
         <Compile Include="SerialPort.fs" />
         <Compile Include="PortDetection.fs" />
         <Compile Include="CommandMapping.fs" />
-        <Compile Include="ApiExplorer.fs" />
-        <Compile Include="ApiExplorerHelpers.fs" />
-        <Compile Include="ApiExplorerCommands.fs" />
-        <Compile Include="ApiExplorerUpdate.fs" />
-        <Compile Include="ApiExplorerViews.fs" />
+        <Compile Include="ApplicationScreen\ApplicationScreen.fs" />
+        <Compile Include="ApplicationScreen\Helpers.fs" />
+        <Compile Include="ApplicationScreen\Commands.fs" />
+        <Compile Include="ApplicationScreen\Update.fs" />
+        <Compile Include="ApplicationScreen\ConnectionPanel.fs" />
+        <Compile Include="ApplicationScreen\StatusBar.fs" />
+        <Compile Include="ApplicationScreen\TreeBrowser.fs" />
+        <Compile Include="ApplicationScreen\EndpointViewer.fs" />
+        <Compile Include="ApplicationScreen\BindingsPanel.fs" />
+        <Compile Include="ApplicationScreen\SerialPortPanel.fs" />
+        <Compile Include="ApplicationScreen\MainView.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 

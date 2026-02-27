@@ -3,12 +3,12 @@ namespace CounterApp
 open TSWApi
 open TSWApi.Subscription
 open CounterApp.CommandMapping
-open CounterApp.ApiExplorer
-open CounterApp.ApiExplorerHelpers
-open CounterApp.ApiExplorerCommands
+open CounterApp.ApplicationScreen
+open CounterApp.ApplicationScreenHelpers
+open CounterApp.ApplicationScreenCommands
 open global.Elmish
 
-module ApiExplorerUpdate =
+module ApplicationScreenUpdate =
 
     let rec update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
         match msg with

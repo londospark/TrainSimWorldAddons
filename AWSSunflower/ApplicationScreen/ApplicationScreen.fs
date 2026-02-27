@@ -6,7 +6,7 @@ open TSWApi.Subscription
 open CounterApp.CommandMapping
 open CounterApp.PortDetection
 
-module ApiExplorer =
+module ApplicationScreen =
 
     // ─── Model ───
 

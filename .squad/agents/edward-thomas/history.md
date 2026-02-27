@@ -181,3 +181,23 @@ Wrote 12 new tests on branch `feature/elmish-sqlite` covering three migration ar
 
 **Commit:** e3cfe9d on `feature/port-detection`
 
+### 2026-02-27: Test Infrastructure Cleanup (R-E1 through R-E6)
+
+**Date:** 2026-02-27  
+**Branch:** refactor/test-helpers  
+**Task:** Consolidate duplicated test infrastructure across 7 test files
+
+**Changes Made:**
+
+- **R-E1:** Created `TSWApi.Tests/TestHelpers.fs` as a shared module with `MockHandler`, `CallbackMockHandler`, mock client factories (`mockClient`, `capturingHandler`, `constantClient`, `sequentialClient`, `errorClient`), `makeResponse`, `valueJson`, shared `testConfig`, and a `TestJson` module with shared JSON fixtures
+- **R-E2:** Removed CommKey boilerplate from 15 tests in `HttpTests.fs` — each test had a `match CommKey.create ... with | Ok key -> ... | Error e -> Assert.Fail(...)` wrapper adding one nesting level. Renamed local `MockHandler` to `CapturingMockHandler` (captures body, method, content-type) since it's richer than the shared one
+- **R-E3:** Extracted `testMapping` and `testCommandSet` at module level in `CommandMappingTests.fs`, replacing 3 identical inline definitions in translate tests
+- **R-E4:** Removed duplicate `testConfig` definitions from `ApiClientTests.fs`, `SubscriptionTests.fs`, and `ApiExplorerUpdateTests.fs`; all now use shared `testConfig` from `TestHelpers`
+- **R-E6:** Moved shared JSON test data (`info`, `listWithEndpoints`, `getResponse`) into `TestHelpers.TestJson` module, replacing near-identical definitions in `TypesTests.fs` and `ApiClientTests.fs`
+
+**Key Decision:** Kept `CapturingMockHandler` local to `HttpTests.fs` rather than adding it to `TestHelpers`. Only `HttpTests.fs` needs body/method/content-type capture; other files only need basic response mocking. This keeps `TestHelpers` focused on widely-shared utilities.
+
+**Results:** All 200 tests pass (183 TSWApi + 17 AWSSunflower). Net reduction of ~147 lines across 7 test files.
+
+**Commit:** 17320dd on `refactor/test-helpers`
+

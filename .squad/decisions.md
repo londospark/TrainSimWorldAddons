@@ -151,3 +151,94 @@ Three-layer exception handling with `#if DEBUG` / `#else` compile-time split:
 ### Outcome
 
 127 tests pass. Build succeeds. Feature branches merged to develop and main. v1.0.0 released.
+
+---
+
+## 2026-02-28: ApiExplorer.fs Decomposition
+
+**Date:** 2026-02-28  
+**Author:** Talyllyn (Lead) → Tom Rolt (UI Dev) [Execution]  
+**Status:** Implemented  
+**Branch:** feature/apiexplorer-decomposition  
+**PR:** #28 (merged to main)
+
+### Problem
+
+`AWSSunflower/ApiExplorer.fs` is 1046 lines containing the entire MVU stack: Model, Msg, init, helpers, async commands, update, and 7 view functions. Hard to navigate, reason about, and maintain.
+
+### Decision
+
+Split into 5 focused modules:
+- **ApiExplorer.fs** — Model, Msg, init (~537 lines after trim)
+- **ApiExplorerHelpers.fs** — Pure functions (stripRootPrefix, nullSafe, effectiveName, mapNodeToTreeState, endpointKey, getLocoBindings, isSerialConnected, updateTreeNode, findNode, filterTree) (~97 lines)
+- **ApiExplorerCommands.fs** — Shared state (httpClient, currentSubscription) + async commands (timedApiCall, connectCmd, loadRootNodesCmd, expandNodeCmd, getValueCmd, detectLocoCmd, createSubscriptionCmd, disposeSubscription, resetSerialCmd) (~77 lines)
+- **ApiExplorerUpdate.fs** — update function (~145 lines)
+- **ApiExplorerViews.fs** — All UI panels + mainView (~222 lines)
+
+### Key Design Choices
+
+- **Preserve module name** `ApiExplorer` for backward compatibility (Program.fs, test call sites)
+- **Visibility:** private → internal (assembly-scoped) via existing `InternalsVisibleTo`
+- **Pragmatic:** Kept currentSubscription mutable read from views (MVU anti-pattern; separate PR to add IsSubscriptionActive to Model)
+- **Dependencies:** No cycles; clean compile order
+
+### External Call Sites
+
+- `Program.fs`: `ApiExplorer.update` → `ApiExplorerUpdate.update`, `ApiExplorer.mainView` → `ApiExplorerViews.mainView`
+- `ApiExplorerUpdateTests.fs`: Added opens for ApiExplorerUpdate, ApiExplorerHelpers
+
+### Files Modified
+
+- AWSSunflower/ApiExplorer.fs (refactored)
+- AWSSunflower/ApiExplorerHelpers.fs (new)
+- AWSSunflower/ApiExplorerCommands.fs (new)
+- AWSSunflower/ApiExplorerUpdate.fs (new)
+- AWSSunflower/ApiExplorerViews.fs (new)
+- AWSSunflower.fsproj (compile order)
+- AWSSunflower/Program.fs (2 line changes)
+- TSWApi.Tests/ApiExplorerUpdateTests.fs (opens)
+
+### Outcome
+
+✅ All 200 tests passing. Build succeeds. PR #28 merged to main. 1046 lines split into 5 files (97+77+145+222+537 net = 1078 lines with formatting).
+
+---
+
+## 2026-02-27: DisconnectSerial Message Kept (Pragmatic Test Compatibility)
+
+**Date:** 2026-02-27  
+**Author:** Tom Rolt (UI Dev)  
+**Status:** Applied  
+**Branch:** refactor/ui-cleanup
+
+**Decision:** Removed dead messages `ConnectSerial`, `SerialConnected`, `SerialError` (never dispatched from UI/commands). Kept `DisconnectSerial` because test `TSWApi.Tests/ApiExplorerUpdateTests.fs:366` directly dispatches it. Rather than rewrite the test now, pragmatically retained the message.
+
+**Action Needed:** Edward Thomas should update that test to use `ToggleSerialConnection` (live code path), then `DisconnectSerial` can be removed in a follow-up.
+
+---
+
+## 2026-02-27: CapturingMockHandler Kept Local to HttpTests.fs
+
+**Date:** 2026-02-27  
+**Author:** Edward Thomas (Tester)  
+**Status:** Applied  
+**Branch:** refactor/test-helpers
+
+**Decision:** During test infrastructure consolidation, two different mock handler types existed. Kept the rich `CapturingMockHandler` (captures body, method, content-type) local to `HttpTests.fs` rather than promoting to `TestHelpers.fs`.
+
+**Rationale:** Only HTTP verb tests need body/method/content-type capture. Adding it to TestHelpers would add unused complexity for other test files. If future tests need request capture, it can be imported from HttpTests or promoted then.
+
+---
+
+## 2026-02-27: Remove `getAvailablePorts` and `startPortPolling` from SerialPortModule
+
+**Date:** 2026-02-27  
+**Author:** Dolgoch (Core Dev)  
+**Status:** Applied  
+**Branch:** refactor/backend-cleanup
+
+**Decision:** Both `SerialPortModule.startPortPolling` and `SerialPortModule.getAvailablePorts` are dead code. Port polling was replaced by `PortDetection.detectPorts()` (returns richer `DetectedPort` records). Grep confirmed zero external callers.
+
+**Action Taken:** Removed both functions. `SerialPortModule` now exposes only: `connectAsync`, `sendAsync`, `disconnect`.
+
+**Note:** Documentation files (ARCHITECTURE.md, QUICKSTART.md, IMPLEMENTATION_SUMMARY.md) still reference the removed functions — may need updating.

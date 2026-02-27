@@ -2,7 +2,7 @@ namespace CounterApp
 
 open TSWApi
 
-module ApiExplorerHelpers =
+module ApplicationScreenHelpers =
 
     let stripRootPrefix (path: string) =
         if not (isNull path) && path.StartsWith("Root/") then path.Substring(5) else path
@@ -39,7 +39,7 @@ module ApiExplorerHelpers =
         |> Option.map (fun l -> l.BoundEndpoints)
         |> Option.defaultValue []
 
-    let isSerialConnected (model: ApiExplorer.Model) =
+    let isSerialConnected (model: ApplicationScreen.Model) =
         match model.SerialConnectionState with ConnectionState.Connected _ -> true | _ -> false
 
     let rec updateTreeNode path updater (nodes: TreeNodeState list) =
@@ -75,3 +75,11 @@ module ApiExplorerHelpers =
                 else
                     None
             )
+
+    module AppColors =
+        let connected = "#00AA00"
+        let error = "#FF5555"
+        let warning = "#FFAA00"
+        let panelBg = "#2A2A2A"
+        let border = "#3A3A3A"
+        let info = "#55AAFF"
