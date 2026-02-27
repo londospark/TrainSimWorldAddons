@@ -10,6 +10,7 @@
     <Compile Include="HttpTests.fs" />
     <Compile Include="ApiClientTests.fs" />
     <Compile Include="TreeNavigationTests.fs" />
+    <Compile Include="SubscriptionTests.fs" />
     <Compile Include="ApiExplorerUpdateTests.fs" />
   </ItemGroup>
 
