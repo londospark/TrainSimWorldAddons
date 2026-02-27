@@ -69,3 +69,26 @@
 **Open Questions:** Loco metadata path in Player tree (action: manual exploration), serial protocol format (action: user confirmation), polling interval configurable vs hardcoded.
 
 **Decision written to:** `.squad/decisions/inbox/talyllyn-binding-polling-serial-architecture.md`
+
+### ApiExplorer.fs Decomposition Analysis
+
+**Review Date:** 2026-02-28
+
+**File Analysis:** `AWSSunflower/ApiExplorer.fs` (1046 lines) contains the entire MVU stack — Model, Msg, init, pure helpers, async commands, update function, and 7 view functions. Analyzed for decomposition into focused modules.
+
+**Proposed Split:** 5 files replacing the monolith:
+1. `ApiExplorer.fs` (~90 lines) — Model, Msg, init (keeps module name for minimal call-site changes)
+2. `ApiExplorerHelpers.fs` (~100 lines) — pure functions (tree ops, string helpers, filterTree)
+3. `ApiExplorerCommands.fs` (~150 lines) — shared HttpClient, subscription state, all async Cmd functions
+4. `ApiExplorerUpdate.fs` (~215 lines) — update function only
+5. `ApiExplorerViews.fs` (~530 lines) — AppColors + all 7 view functions + mainView
+
+**Key Findings:**
+- `endpointKey` and `getLocoBindings` are shared between update and views — must go in Helpers.
+- `bindingsPanel` reads `currentSubscription.Value` directly (MVU violation) — creates view→commands dependency. Recommended fix: add `IsSubscriptionActive: bool` to Model (separate PR).
+- All `private` helpers become `internal` (assembly-scoped) when split across files. `InternalsVisibleTo` already set for tests.
+- Only 2 call-site changes in Program.fs: `ApiExplorerUpdate.update` and `ApiExplorerViews.mainView`.
+- Test file needs additional `open` statements but no logic changes.
+- Dependency chain is linear with no cycles.
+
+**Decision written to:** `.squad/decisions/inbox/talyllyn-apiexplorer-decomposition.md`
