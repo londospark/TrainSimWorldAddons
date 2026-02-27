@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="TestHelpers.fs" />
     <Compile Include="TypesTests.fs" />
     <Compile Include="HttpTests.fs" />
     <Compile Include="ApiClientTests.fs" />
