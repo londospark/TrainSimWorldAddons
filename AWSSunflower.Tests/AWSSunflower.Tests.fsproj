@@ -7,6 +7,10 @@
 
   <ItemGroup>
     <Compile Include="PortDetectionTests.fs" />
+    <Compile Include="CommandMappingTests.fs" />
+    <Compile Include="HelpersTests.fs" />
+    <Compile Include="BindingPersistenceTests.fs" />
+    <Compile Include="UpdateTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
