@@ -163,3 +163,23 @@
 - `InternalsVisibleTo` attribute already covers test assembly access to internal functions
 
 **Status:** ✅ Completed & tested — 200 tests pass (17 + 183)
+
+### ApplicationScreen Refactor (2026-02-28)
+**Date:** 2026-02-28  
+**Task:** Rename ApiExplorer → ApplicationScreen, move files into ApplicationScreen/ folder, split views into component files
+
+**Key Changes:**
+- **Renamed modules:** ApiExplorer → ApplicationScreen, ApiExplorerHelpers → ApplicationScreenHelpers, ApiExplorerCommands → ApplicationScreenCommands, ApiExplorerUpdate → ApplicationScreenUpdate
+- **New folder:** All ApplicationScreen files now in `AWSSunflower/ApplicationScreen/`
+- **View decomposition:** Split ApiExplorerViews.fs (530 lines) into 7 component files: ConnectionPanel, StatusBar, TreeBrowser, EndpointViewer, BindingsPanel, SerialPortPanel, MainView
+- **Flattened nesting:** Extracted `renderEndpoint`, `renderBinding`, `serialStatus` helper functions from deeply nested view code
+- **AppColors:** Moved from `module private AppColors` in views to non-private `module AppColors` in Helpers.fs
+- **Test file:** Renamed ApiExplorerUpdateTests.fs → ApplicationScreenUpdateTests.fs with updated module/opens
+
+**Learnings:**
+- When splitting view files into components, each component needs its own set of Avalonia opens — don't forget `Avalonia.FuncUI.Types` for files using `:> IView` casts
+- `open TSWApi` is needed in component files that directly reference `Endpoint`, `TreeNodeState`, or `ApiConnectionState` types
+- MainView composition file is very small (~25 lines) — just opens all component modules and calls their functions in DockPanel order
+- BindingsPanel is the only component that needs `open CounterApp.ApplicationScreenCommands` (for `currentSubscription` read)
+
+**Status:** ✅ Completed & tested — 200 tests pass (17 + 183)
