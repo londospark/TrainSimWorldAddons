@@ -38,9 +38,9 @@ module BindingsPanel =
 
     let bindingsPanel (model: Model) (dispatch: Dispatch<Msg>) =
         let currentBindings =
-            match model.CurrentLoco with
-            | Some locoName -> getLocoBindings model.BindingsConfig locoName
-            | None -> []
+            model.CurrentLoco
+            |> Option.map (getLocoBindings model.BindingsConfig)
+            |> Option.defaultValue []
         Border.create [
             Border.dock Dock.Bottom
             Border.borderBrush (SolidColorBrush(Color.Parse(AppColors.border)))

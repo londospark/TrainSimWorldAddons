@@ -27,19 +27,12 @@ module TreeNavigation =
         | name :: rest ->
             nodes
             |> List.tryFind (nameMatches name)
-            |> Option.bind (fun n ->
-                match n.Nodes with
-                | Some children -> getNodeAtPath children rest
-                | None -> None)
+            |> Option.bind (fun n -> n.Nodes |> Option.bind (fun children -> getNodeAtPath children rest))
 
     /// Find an endpoint by name on a node.
     let findEndpoint (node: Node) (endpointName: string) : Endpoint option =
-        match node.Endpoints with
-        | Some endpoints -> endpoints |> List.tryFind (fun e -> e.Name = endpointName)
-        | None -> None
+        node.Endpoints |> Option.bind (List.tryFind (fun e -> e.Name = endpointName))
 
     /// Get the child nodes of a node (empty list if leaf).
     let getChildNodes (node: Node) : Node list =
-        match node.Nodes with
-        | Some children -> children
-        | None -> []
+        node.Nodes |> Option.defaultValue []

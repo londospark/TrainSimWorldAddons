@@ -17,6 +17,13 @@ module ApplicationScreenCommands =
     let httpClient = new HttpClient()
     let currentSubscription : ISubscription option ref = ref None
 
+    /// Unwrap a Result, raising an exception on Error. Used inside Cmd.OfAsync.either
+    /// where exceptions are caught and converted to error messages.
+    let okOrFail (formatMsg: 'E -> string) (r: Result<'T, 'E>) : 'T =
+        match r with
+        | Ok v -> v
+        | Error e -> failwith (formatMsg e)
+
     // ─── Async commands ───
 
     let timedApiCall (apiCall: Async<ApiResult<'T>>) : Async<'T * TimeSpan> =
@@ -24,9 +31,7 @@ module ApplicationScreenCommands =
             let startTime = DateTime.Now
             let! result = apiCall
             let elapsed = DateTime.Now - startTime
-            match result with
-            | Ok value -> return (value, elapsed)
-            | Error err -> return failwithf "API error: %A" err
+            return (result |> okOrFail (sprintf "API error: %A"), elapsed)
         }
 
     let connectCmd (baseUrl: string) (commKey: string) =
@@ -38,14 +43,13 @@ module ApplicationScreenCommands =
                             let myGamesPath =
                                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
                                 |> fun docs -> IO.Path.Combine(docs, "My Games")
-                            match TSWApi.Http.discoverCommKey myGamesPath with
-                            | Ok key -> CommKey.value key
-                            | Error err -> failwithf "CommKey discovery failed: %A" err
+                            TSWApi.Http.discoverCommKey myGamesPath
+                            |> okOrFail (sprintf "CommKey discovery failed: %A")
+                            |> CommKey.value
                         else commKey
                     let config =
-                        match TSWApi.Http.createConfigWithUrl baseUrl keyValue with
-                        | Ok c -> c
-                        | Error err -> failwithf "Invalid configuration: %A" err
+                        TSWApi.Http.createConfigWithUrl baseUrl keyValue
+                        |> okOrFail (sprintf "Invalid configuration: %A")
                     let! (info, elapsed) = timedApiCall (TSWApi.ApiClient.getInfo httpClient config)
                     return (keyValue, config, info, elapsed)
                 })
@@ -106,14 +110,11 @@ module ApplicationScreenCommands =
             (fun () ->
                 async {
                     let! getResult = TSWApi.ApiClient.getValue httpClient config "CurrentDrivableActor.ObjectName"
-                    match getResult with
-                    | Ok getResp ->
-                        if isNull (getResp.Values :> obj) || getResp.Values.Count = 0 then
-                            return failwith "No ObjectName returned"
-                        else
-                            let name = getResp.Values.["ObjectName"] |> string
-                            return name
-                    | Error err -> return failwithf "Detect loco failed: %A" err
+                    let getResp = getResult |> okOrFail (sprintf "Detect loco failed: %A")
+                    if isNull (getResp.Values :> obj) || getResp.Values.Count = 0 then
+                        return failwith "No ObjectName returned"
+                    else
+                        return getResp.Values.["ObjectName"] |> string
                 })
             ()
             LocoDetected

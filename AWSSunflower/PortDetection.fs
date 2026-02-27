@@ -148,6 +148,6 @@ module PortDetection =
     /// Format a port for display in the UI.
     /// Shows "COM3 — Arduino Uno" if USB info is available, otherwise just "COM3".
     let portDisplayName (port: DetectedPort) : string =
-        match port.UsbInfo with
-        | Some usb -> sprintf "%s — %s" port.PortName usb.Description
-        | None -> port.PortName
+        port.UsbInfo
+        |> Option.map (fun usb -> sprintf "%s — %s" port.PortName usb.Description)
+        |> Option.defaultValue port.PortName

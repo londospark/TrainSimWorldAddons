@@ -109,10 +109,8 @@ module CommandMapping =
         addon.ResetCommand
 
     /// Convert a SerialCommand to the raw string to send over the wire.
-    let toWireString (cmd: SerialCommand) : string =
-        match cmd with
-        | SerialCommand.Text s -> s
-        | SerialCommand.Formatted s -> s
+    let toWireString : SerialCommand -> string = function
+        | SerialCommand.Text s | SerialCommand.Formatted s -> s
 
     // ─── Concrete Addon Definitions ───
 

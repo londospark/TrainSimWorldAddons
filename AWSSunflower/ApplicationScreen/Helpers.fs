@@ -45,15 +45,12 @@ module ApplicationScreenHelpers =
     let rec updateTreeNode path updater (nodes: TreeNodeState list) =
         nodes |> List.map (fun (n: TreeNodeState) ->
             if n.Path = path then updater n
-            else
-                match n.Children with
-                | Some kids -> { n with Children = Some (updateTreeNode path updater kids) }
-                | None -> n)
+            else { n with Children = n.Children |> Option.map (updateTreeNode path updater) })
 
     let rec findNode path (nodes: TreeNodeState list) =
         nodes |> List.tryPick (fun n ->
             if n.Path = path then Some n
-            else match n.Children with Some kids -> findNode path kids | None -> None)
+            else n.Children |> Option.bind (findNode path))
 
     let rec filterTree (query: string) (nodes: TreeNodeState list) : TreeNodeState list =
         if System.String.IsNullOrWhiteSpace(query) then
