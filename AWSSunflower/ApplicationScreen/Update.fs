@@ -175,7 +175,7 @@ module ApplicationScreenUpdate =
         | PortsUpdated ports ->
             let newModel = { model with DetectedPorts = ports }
             match PortDetection.classifyPorts ports with
-            | PortDetection.SingleArduino arduino when model.SerialPortName.IsNone ->
+            | PortDetection.DetectionResult.SingleArduino arduino when model.SerialPortName.IsNone ->
                 { newModel with SerialPortName = Some arduino.PortName }, Cmd.none
             | _ -> newModel, Cmd.none
 
@@ -195,7 +195,7 @@ module ApplicationScreenUpdate =
                         (fun () -> SerialPortModule.connectAsync portName 9600)
                         ()
                         (fun result -> SerialConnectResult result)
-                        (fun ex -> SerialConnectResult (Error (OpenFailed ex.Message)))
+                        (fun ex -> SerialConnectResult (Error (SerialError.OpenFailed ex.Message)))
                 | None -> model, Cmd.none
 
         | SerialConnectResult result ->

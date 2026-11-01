@@ -92,3 +92,31 @@
 - Dependency chain is linear with no cycles.
 
 **Decision written to:** `.squad/decisions/inbox/talyllyn-apiexplorer-decomposition.md`
+
+### Idiomaticity Audit — Full Codebase
+
+**Audit Date:** 2025-03-01
+
+**Scope:** 34 .fs files across TSWApi, AWSSunflower, and both test projects.
+
+**Key Findings:**
+- `CounterApp` namespace is a leftover template name across all AWSSunflower files — high-impact naming issue.
+- ~25 `sprintf` calls should be `$"..."` interpolation for consistency — some functions already use interpolation (Http.fs), creating mixed style.
+- `HttpMethod("PATCH")` should be `HttpMethod.Patch` (available since .NET 5, project targets .NET 10).
+- `SerialError` DU missing `[<RequireQualifiedAccess>]` — `Disconnected` case collides with `ConnectionState.Disconnected`.
+- `.Length > 0` on F# lists is O(n); `.IsEmpty` is O(1) — found in 4 places.
+- `httpClient` and `currentSubscription` in Commands.fs are public mutable module state that should be `internal`.
+- `BindingsPanel` directly reads `currentSubscription` ref cell from view — confirmed MVU anti-pattern (already documented in decomposition analysis).
+- `SendSerialCommand` handler silently discards `Result<unit, SerialError>` — errors swallowed.
+- `okOrFail` pattern converts `Result.Error` to `failwith` for Elmish `Cmd.OfAsync.either` — a custom `Cmd.ofAsyncResult` helper would be cleaner.
+
+**What's Already Idiomatic:**
+- TSWApi types (BaseUrl, CommKey) use single-case DUs with private constructors — excellent DDD pattern.
+- `result {}` CE from FsToolkit.ErrorHandling used in `createConfigWithUrl`.
+- Pipeline style is consistent throughout both projects.
+- Module dependency chains are clean with no cycles.
+- `async {}` is correct for Elmish/FuncUI; `task {}` used correctly in test mocks.
+- Test naming uses double-backtick convention consistently.
+- `[<RequireQualifiedAccess>]` applied to 5 of 7 DUs that need it.
+
+**Decision written to:** `.squad/decisions/inbox/talyllyn-idiomaticity-audit.md`

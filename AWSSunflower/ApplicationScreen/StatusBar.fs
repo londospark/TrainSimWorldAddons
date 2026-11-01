@@ -25,8 +25,8 @@ module StatusBar =
                                 match model.ConnectionState with
                                 | ApiConnectionState.Disconnected -> "Status: Disconnected"
                                 | ApiConnectionState.Connecting -> "Status: Connecting..."
-                                | ApiConnectionState.Connected info -> sprintf "Status: Connected to %s (Build %d)" info.Meta.GameName info.Meta.GameBuildNumber
-                                | ApiConnectionState.Error msg -> sprintf "Status: Error - %s" msg
+                                | ApiConnectionState.Connected info -> $"Status: Connected to {info.Meta.GameName} (Build {info.Meta.GameBuildNumber})"
+                                | ApiConnectionState.Error msg -> $"Status: Error - {msg}"
                             )
                             TextBlock.fontSize 11.0
                             TextBlock.foreground (
@@ -40,7 +40,7 @@ module StatusBar =
                         match model.LastResponseTime with
                         | Some time ->
                             TextBlock.create [
-                                TextBlock.text (sprintf "Last response: %.0fms" time.TotalMilliseconds)
+                                TextBlock.text $"Last response: %.0f{time.TotalMilliseconds}ms"
                                 TextBlock.fontSize 11.0
                             ]
                         | None -> ()
@@ -48,7 +48,7 @@ module StatusBar =
                         match model.CurrentLoco with
                         | Some loco ->
                             TextBlock.create [
-                                TextBlock.text (sprintf "Loco: %s" loco)
+                                TextBlock.text $"Loco: {loco}"
                                 TextBlock.fontSize 11.0
                                 TextBlock.foreground (SolidColorBrush(Color.Parse(AppColors.info)))
                             ]

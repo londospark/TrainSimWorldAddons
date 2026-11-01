@@ -11,7 +11,25 @@
 ## Learnings
 <!-- Append learnings below -->
 
-### API Surface Cleanup — R-S1, R-S2 (refactor/api-surface)
+### Deep F# Idiomaticity Audit (2025-07-24)
+**Requested by:** LondoSpark  
+**Scope:** Full TSWApi library (Types.fs, Http.fs, ApiClient.fs, TreeNavigation.fs, Subscription.fs + Tests)
+
+**Key Findings:**
+1. `asyncResult {}` from FsToolkit.ErrorHandling is NOT better for HTTP code — the current `async { try...with }` pattern in `sendRequestWithMethod` is cleaner because the outer try/catch elegantly maps exceptions to `NetworkError`. `asyncResult {}` doesn't auto-catch, so you'd need `Async.Catch` wrappers everywhere, making it longer and harder to read.
+2. `HttpMethod("PATCH")` should be `HttpMethod.Patch` (available since .NET 5, avoids allocation).
+3. Library should thread `Async.CancellationToken` to `HttpClient.SendAsync` for cooperative cancellation.
+4. `ApiError.describe` utility function would help consumers log/display errors without pattern matching every case.
+5. `ApiSession` record bundling HttpClient + ApiConfig would reduce parameter threading (Phase 2 breaking change).
+6. `GetResponse.Values: Dictionary<string, obj>` should become `Dictionary<string, JsonElement>` to preserve type info (already flagged in Phase 1 review).
+7. `findEndpoint` parameter order should be `endpointName -> node` for pipe-friendliness.
+8. System.Text.Json on .NET 10 has native F# support — `JsonFSharpConverter` is NOT needed.
+9. XML docs are thorough but `ApiClient` functions lack `<param>` and `<returns>` tags for fsdocs.
+10. Module structure is clean: Types → Http → ApiClient → Subscription/TreeNavigation. `[<AutoOpen>]` on Types is the right choice.
+
+**Output:** Full report written to `.squad/decisions/inbox/sir-haydn-library-audit.md`
+
+### API Surface Cleanup— R-S1, R-S2 (refactor/api-surface)
 **Date:** 2025-07-23
 **Branch:** refactor/api-surface
 

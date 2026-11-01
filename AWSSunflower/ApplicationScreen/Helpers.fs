@@ -24,14 +24,14 @@ module ApplicationScreenHelpers =
             else parentPath + "/" + name
         let children =
             match n.Nodes with
-            | Some nodes when nodes.Length > 0 ->
+            | Some nodes when not nodes.IsEmpty ->
                 Some (nodes |> List.map (mapNodeToTreeState path))
             | Some _ -> Some []
             | None -> None
         { Path = path; Name = name; IsExpanded = false
           Children = children; Endpoints = n.Endpoints }
 
-    let endpointKey nodePath endpointName = sprintf "%s.%s" nodePath endpointName
+    let endpointKey nodePath endpointName = $"{nodePath}.{endpointName}"
 
     let getLocoBindings (config: BindingsConfig) (locoName: string) =
         config.Locos
@@ -63,10 +63,10 @@ module ApplicationScreenHelpers =
                     match node.Children with
                     | Some children -> filterTree query children
                     | None -> []
-                if nameMatch || filteredChildren.Length > 0 then
+                if nameMatch || not filteredChildren.IsEmpty then
                     let updatedChildren =
                         match node.Children with
-                        | Some _ when filteredChildren.Length > 0 -> Some filteredChildren
+                        | Some _ when not filteredChildren.IsEmpty -> Some filteredChildren
                         | _ -> node.Children
                     Some { node with Children = updatedChildren }
                 else

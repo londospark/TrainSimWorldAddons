@@ -20,7 +20,7 @@ module BindingsPanel =
             StackPanel.spacing 8.0
             StackPanel.children [
                 TextBlock.create [
-                    TextBlock.text (sprintf "%s = %s" b.Label value)
+                    TextBlock.text $"{b.Label} = {value}"
                     TextBlock.fontSize 11.0
                     TextBlock.verticalAlignment VerticalAlignment.Center
                     TextBlock.width 400.0
@@ -56,7 +56,7 @@ module BindingsPanel =
                             StackPanel.spacing 10.0
                             StackPanel.children [
                                 TextBlock.create [
-                                    TextBlock.text (sprintf "Active Bindings (%d)" currentBindings.Length)
+                                    TextBlock.text $"Active Bindings ({currentBindings.Length})"
                                     TextBlock.fontSize 12.0
                                     TextBlock.fontWeight FontWeight.Bold
                                 ]

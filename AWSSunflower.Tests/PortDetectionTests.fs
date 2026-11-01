@@ -63,7 +63,7 @@ let ``isArduinoVid is case insensitive``() =
 let ``classifyPorts with empty list returns NoPorts``() =
     let result = PortDetection.classifyPorts []
     match result with
-    | PortDetection.NoPorts -> Assert.True(true)
+    | PortDetection.DetectionResult.NoPorts -> Assert.True(true)
     | _ -> Assert.Fail("Expected NoPorts")
 
 [<Fact>]
@@ -71,7 +71,7 @@ let ``classifyPorts with single Arduino returns SingleArduino``() =
     let port = { PortDetection.PortName = "COM3"; PortDetection.UsbInfo = Some { PortDetection.Vid = "2341"; PortDetection.Pid = "0043"; PortDetection.Description = "Arduino Uno" }; PortDetection.IsArduino = true }
     let result = PortDetection.classifyPorts [port]
     match result with
-    | PortDetection.SingleArduino p -> Assert.Equal("COM3", p.PortName)
+    | PortDetection.DetectionResult.SingleArduino p -> Assert.Equal("COM3", p.PortName)
     | _ -> Assert.Fail("Expected SingleArduino")
 
 [<Fact>]
@@ -80,7 +80,7 @@ let ``classifyPorts with two Arduinos returns MultipleArduinos``() =
     let port2 = { PortDetection.PortName = "COM5"; PortDetection.UsbInfo = Some { PortDetection.Vid = "1A86"; PortDetection.Pid = "7523"; PortDetection.Description = "CH340" }; PortDetection.IsArduino = true }
     let result = PortDetection.classifyPorts [port1; port2]
     match result with
-    | PortDetection.MultipleArduinos ports -> Assert.Equal(2, ports.Length)
+    | PortDetection.DetectionResult.MultipleArduinos ports -> Assert.Equal(2, ports.Length)
     | _ -> Assert.Fail("Expected MultipleArduinos")
 
 [<Fact>]
@@ -88,7 +88,7 @@ let ``classifyPorts with non-Arduino ports returns NoArduinoFound``() =
     let port = { PortDetection.PortName = "COM3"; PortDetection.UsbInfo = Some { PortDetection.Vid = "DEAD"; PortDetection.Pid = "BEEF"; PortDetection.Description = "Unknown Device" }; PortDetection.IsArduino = false }
     let result = PortDetection.classifyPorts [port]
     match result with
-    | PortDetection.NoArduinoFound allPorts -> Assert.Equal(1, allPorts.Length)
+    | PortDetection.DetectionResult.NoArduinoFound allPorts -> Assert.Equal(1, allPorts.Length)
     | _ -> Assert.Fail("Expected NoArduinoFound")
 
 [<Fact>]

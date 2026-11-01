@@ -38,12 +38,12 @@ module Http =
                     |> Array.sortByDescending (fun d ->
                         let name = Path.GetFileName(d)
                         let m = Regex.Match(name, @"TrainSimWorld(\d*)")
-                        if m.Success && m.Groups.[1].Value <> "" then
-                            int m.Groups.[1].Value
+                        if m.Success && m.Groups[1].Value <> "" then
+                            int m.Groups[1].Value
                         else
                             0)
 
-                let keyPath = Path.Combine(sorted.[0], "Saved", "Config", "CommAPIKey.txt")
+                let keyPath = Path.Combine(sorted[0], "Saved", "Config", "CommAPIKey.txt")
 
                 if File.Exists(keyPath) then
                     let key = File.ReadAllText(keyPath).Trim()
@@ -126,7 +126,7 @@ module Http =
 
     /// <summary>Send a PATCH request with a JSON body.</summary>
     let sendPatch<'T> (client: HttpClient) (config: ApiConfig) (path: string) (body: string) : Async<ApiResult<'T>> =
-        sendRequestWithMethod<'T> client config (HttpMethod("PATCH")) path (Some body)
+        sendRequestWithMethod<'T> client config HttpMethod.Patch path (Some body)
 
     /// <summary>Send a DELETE request without a body.</summary>
     let sendDelete<'T> (client: HttpClient) (config: ApiConfig) (path: string) : Async<ApiResult<'T>> =

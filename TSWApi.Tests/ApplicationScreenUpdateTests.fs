@@ -103,8 +103,8 @@ let ``RootNodesLoaded populates tree`` () =
     let nodes = [ makeNode "Root/A" "A"; makeNode "Root/B" "B" ]
     let model, cmd = update (RootNodesLoaded(nodes, testElapsed)) (connectedModel ())
     Assert.Equal(2, model.TreeRoot.Length)
-    Assert.Equal("Root/A", model.TreeRoot.[0].Path)
-    Assert.Equal("Root/B", model.TreeRoot.[1].Path)
+    Assert.Equal("Root/A", model.TreeRoot[0].Path)
+    Assert.Equal("Root/B", model.TreeRoot[1].Path)
     Assert.Equal(Some testElapsed, model.LastResponseTime)
     Assert.True(cmd |> List.isEmpty)
 
@@ -129,11 +129,11 @@ let ``NodeExpanded updates tree with children`` () =
     let initial = { connectedModel () with TreeRoot = [ makeNode "Root/A" "A" ] }
     let children = [ makeNode "Root/A/C1" "C1"; makeNode "Root/A/C2" "C2" ]
     let model, cmd = update (NodeExpanded("Root/A", children, None, testElapsed)) initial
-    let node = model.TreeRoot.[0]
+    let node = model.TreeRoot[0]
     Assert.True(node.IsExpanded)
     Assert.True(node.Children.IsSome)
     Assert.Equal(2, node.Children.Value.Length)
-    Assert.Equal("Root/A/C1", node.Children.Value.[0].Path)
+    Assert.Equal("Root/A/C1", node.Children.Value[0].Path)
     Assert.Equal(Some testElapsed, model.LastResponseTime)
     Assert.True(cmd |> List.isEmpty)
 
@@ -144,7 +144,7 @@ let ``CollapseNode sets IsExpanded to false`` () =
     let expandedNode = { makeNode "Root/A" "A" with IsExpanded = true; Children = Some [ makeNode "Root/A/C1" "C1" ] }
     let initial = { connectedModel () with TreeRoot = [ expandedNode ] }
     let model, cmd = update (CollapseNode "Root/A") initial
-    Assert.False(model.TreeRoot.[0].IsExpanded)
+    Assert.False(model.TreeRoot[0].IsExpanded)
     Assert.True(cmd |> List.isEmpty)
 
 // ─── SelectNode ───
@@ -193,12 +193,12 @@ let ``NodeExpanded sets parent endpoints`` () =
     let initial = { connectedModel () with TreeRoot = [ makeNode "Player" "Player" ] }
     let children = [ makeNode "Player/TransformComponent0" "TransformComponent0" ]
     let model, cmd = update (NodeExpanded("Player", children, endpoints, testElapsed)) initial
-    let node = model.TreeRoot.[0]
+    let node = model.TreeRoot[0]
     Assert.True(node.IsExpanded)
     Assert.True(node.Children.IsSome)
     Assert.True(node.Endpoints.IsSome)
     Assert.Equal(1, node.Endpoints.Value.Length)
-    Assert.Equal("Property.Speed", node.Endpoints.Value.[0].Name)
+    Assert.Equal("Property.Speed", node.Endpoints.Value[0].Name)
     Assert.True(cmd |> List.isEmpty)
 
 [<Fact>]
@@ -210,14 +210,14 @@ let ``NodeExpanded with nested path updates correct node`` () =
     let grandchildren = [ makeNode "Player/TransformComponent0/Position" "Position" ]
     let endpoints = Some [ { Name = "Property.X"; Writable = true } ]
     let model, cmd = update (NodeExpanded("Player/TransformComponent0", grandchildren, endpoints, testElapsed)) initial
-    let updatedParent = model.TreeRoot.[0]
+    let updatedParent = model.TreeRoot[0]
     Assert.True(updatedParent.Children.IsSome)
-    let updatedChild = updatedParent.Children.Value.[0]
+    let updatedChild = updatedParent.Children.Value[0]
     Assert.True(updatedChild.IsExpanded)
     Assert.True(updatedChild.Children.IsSome)
     Assert.Equal(1, updatedChild.Children.Value.Length)
     Assert.True(updatedChild.Endpoints.IsSome)
-    Assert.Equal("Property.X", updatedChild.Endpoints.Value.[0].Name)
+    Assert.Equal("Property.X", updatedChild.Endpoints.Value[0].Name)
     Assert.True(cmd |> List.isEmpty)
 
 [<Fact>]
@@ -229,9 +229,9 @@ let ``ToggleExpand on expanded child collapses it`` () =
     let parentWithChild = { parent with IsExpanded = true; Children = Some [ child ] }
     let initial = { connectedModel () with TreeRoot = [ parentWithChild ] }
     let model, cmd = update (ToggleExpand "Player/TransformComponent0") initial
-    let updatedParent = model.TreeRoot.[0]
+    let updatedParent = model.TreeRoot[0]
     Assert.True(updatedParent.Children.IsSome)
-    let updatedChild = updatedParent.Children.Value.[0]
+    let updatedChild = updatedParent.Children.Value[0]
     Assert.False(updatedChild.IsExpanded)
     Assert.True(cmd |> List.isEmpty)
 
@@ -277,8 +277,8 @@ let ``BindEndpoint adds binding when loco is known`` () =
     let newModel, _ = update (BindEndpoint ("CurrentDrivableActor/BP_AWS", "Property.Sunflower")) model
     let loco = newModel.BindingsConfig.Locos |> List.find (fun l -> l.LocoName = "TestLoco_123")
     Assert.Equal(1, loco.BoundEndpoints.Length)
-    Assert.Equal("CurrentDrivableActor/BP_AWS", loco.BoundEndpoints.[0].NodePath)
-    Assert.Equal("Property.Sunflower", loco.BoundEndpoints.[0].EndpointName)
+    Assert.Equal("CurrentDrivableActor/BP_AWS", loco.BoundEndpoints[0].NodePath)
+    Assert.Equal("Property.Sunflower", loco.BoundEndpoints[0].EndpointName)
 
 [<Fact>]
 let ``BindEndpoint does nothing when no loco detected`` () =
@@ -298,7 +298,7 @@ let ``UnbindEndpoint removes binding`` () =
     let newModel, _ = update (UnbindEndpoint ("A", "B")) model
     let loco = newModel.BindingsConfig.Locos |> List.find (fun l -> l.LocoName = "TestLoco_123")
     Assert.Equal(1, loco.BoundEndpoints.Length)
-    Assert.Equal("C", loco.BoundEndpoints.[0].NodePath)
+    Assert.Equal("C", loco.BoundEndpoints[0].NodePath)
 
 // ─── Loco Detection ───
 
@@ -490,8 +490,8 @@ let ``addBinding adds to empty config`` () =
     let result = addBinding config "TestLoco" binding
     let loco = result.Locos |> List.find (fun l -> l.LocoName = "TestLoco")
     Assert.Equal(1, loco.BoundEndpoints.Length)
-    Assert.Equal("A", loco.BoundEndpoints.[0].NodePath)
-    Assert.Equal("B", loco.BoundEndpoints.[0].EndpointName)
+    Assert.Equal("A", loco.BoundEndpoints[0].NodePath)
+    Assert.Equal("B", loco.BoundEndpoints[0].EndpointName)
 
 [<Fact>]
 let ``addBinding does not duplicate`` () =
@@ -512,7 +512,7 @@ let ``removeBinding removes specific endpoint`` () =
     let result = removeBinding config "TestLoco" "A" "B"
     let loco = result.Locos |> List.find (fun l -> l.LocoName = "TestLoco")
     Assert.Equal(1, loco.BoundEndpoints.Length)
-    Assert.Equal("C", loco.BoundEndpoints.[0].NodePath)
+    Assert.Equal("C", loco.BoundEndpoints[0].NodePath)
 
 [<Fact>]
 let ``removeBinding is no-op for missing endpoint`` () =
@@ -523,7 +523,7 @@ let ``removeBinding is no-op for missing endpoint`` () =
     let result = removeBinding config "TestLoco" "X" "Y"
     let loco = result.Locos |> List.find (fun l -> l.LocoName = "TestLoco")
     Assert.Equal(1, loco.BoundEndpoints.Length)
-    Assert.Equal("A", loco.BoundEndpoints.[0].NodePath)
+    Assert.Equal("A", loco.BoundEndpoints[0].NodePath)
 
 [<Fact>]
 let ``Tree expansion works at 5 levels deep`` () =
@@ -534,8 +534,8 @@ let ``Tree expansion works at 5 levels deep`` () =
     // Level 1: Expand CF -> get child "0"
     let ch1 = [ makeNode "CF/0" "0" ]
     let m1, _ = update (NodeExpanded("CF", ch1, None, testElapsed)) initial
-    Assert.True(m1.TreeRoot.[0].IsExpanded)
-    Assert.Equal(1, m1.TreeRoot.[0].Children.Value.Length)
+    Assert.True(m1.TreeRoot[0].IsExpanded)
+    Assert.Equal(1, m1.TreeRoot[0].Children.Value.Length)
 
     // Level 2: ToggleExpand on "CF/0" -> should trigger ExpandNode
     let m2, cmd2 = update (ToggleExpand "CF/0") m1
@@ -566,15 +566,15 @@ let ``Tree expansion works at 5 levels deep`` () =
     Assert.False(cmd8 |> List.isEmpty) // Should produce expand command at level 5
 
     // Verify the full tree structure
-    let cfNode = m8.TreeRoot.[0]
+    let cfNode = m8.TreeRoot[0]
     Assert.True(cfNode.IsExpanded)
-    let node0 = cfNode.Children.Value.[0]
+    let node0 = cfNode.Children.Value[0]
     Assert.True(node0.IsExpanded)
-    let sim = node0.Children.Value.[0]
+    let sim = node0.Children.Value[0]
     Assert.True(sim.IsExpanded)
-    let bogie = sim.Children.Value.[0]
+    let bogie = sim.Children.Value[0]
     Assert.True(bogie.IsExpanded)
-    let childrenNode = bogie.Children.Value.[0]
+    let childrenNode = bogie.Children.Value[0]
     Assert.True(childrenNode.Children.IsNone) // Not yet expanded
 
 [<Fact>]
@@ -585,10 +585,10 @@ let ``ToggleExpand on pre-populated node expands without API call`` () =
     let initial = { connectedModel () with TreeRoot = [ parent ] }
     // ToggleExpand on parent should NOT trigger an API call (case 3: already has children)
     let model, cmd = update (ToggleExpand "Player") initial
-    Assert.True(model.TreeRoot.[0].IsExpanded)
+    Assert.True(model.TreeRoot[0].IsExpanded)
     Assert.True(cmd |> List.isEmpty) // No API call needed
-    Assert.Equal(1, model.TreeRoot.[0].Children.Value.Length)
-    Assert.Equal("Player/TC0", model.TreeRoot.[0].Children.Value.[0].Path)
+    Assert.Equal(1, model.TreeRoot[0].Children.Value.Length)
+    Assert.Equal("Player/TC0", model.TreeRoot[0].Children.Value[0].Path)
 
 [<Fact>]
 let ``ToggleExpand on pre-populated child triggers API expand`` () =

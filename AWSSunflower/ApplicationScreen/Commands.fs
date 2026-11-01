@@ -14,8 +14,8 @@ module ApplicationScreenCommands =
 
     // ─── Shared HttpClient & Subscription ───
 
-    let httpClient = new HttpClient()
-    let currentSubscription : ISubscription option ref = ref None
+    let internal httpClient = new HttpClient()
+    let internal currentSubscription : ISubscription option ref = ref None
 
     /// Unwrap a Result, raising an exception on Error. Used inside Cmd.OfAsync.either
     /// where exceptions are caught and converted to error messages.
@@ -97,7 +97,7 @@ module ApplicationScreenCommands =
                             "(no values returned)"
                         else
                             getResp.Values
-                            |> Seq.map (fun kvp -> sprintf "%s: %O" kvp.Key kvp.Value)
+                            |> Seq.map (fun kvp -> $"{kvp.Key}: {kvp.Value}")
                             |> String.concat ", "
                     return (endpointPath, valueStr, elapsed)
                 })
@@ -114,7 +114,7 @@ module ApplicationScreenCommands =
                     if isNull (getResp.Values :> obj) || getResp.Values.Count = 0 then
                         return failwith "No ObjectName returned"
                     else
-                        return getResp.Values.["ObjectName"] |> string
+                        return getResp.Values["ObjectName"] |> string
                 })
             ()
             LocoDetected

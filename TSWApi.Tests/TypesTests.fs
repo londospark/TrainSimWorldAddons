@@ -40,6 +40,29 @@ let ``ApiError ParseError carries message`` () =
     | ParseError msg -> Assert.Equal("Invalid JSON", msg)
     | _ -> Assert.Fail("Expected ParseError")
 
+// ── ApiError.describe ──
+
+[<Fact>]
+let ``ApiError.describe formats NetworkError`` () =
+    let err = NetworkError (System.Exception("timeout"))
+    Assert.Equal("Network error: timeout", ApiError.describe err)
+
+[<Fact>]
+let ``ApiError.describe formats HttpError`` () =
+    Assert.Equal("HTTP 404: Not Found", ApiError.describe (HttpError(404, "Not Found")))
+
+[<Fact>]
+let ``ApiError.describe formats AuthError`` () =
+    Assert.Equal("Auth error: bad key", ApiError.describe (AuthError "bad key"))
+
+[<Fact>]
+let ``ApiError.describe formats ParseError`` () =
+    Assert.Equal("Parse error: bad json", ApiError.describe (ParseError "bad json"))
+
+[<Fact>]
+let ``ApiError.describe formats ConfigError`` () =
+    Assert.Equal("Config error: missing url", ApiError.describe (ConfigError "missing url"))
+
 // ── ApiConfig ──
 
 [<Fact>]
@@ -68,9 +91,9 @@ let ``InfoResponse deserializes Meta fields`` () =
 let ``InfoResponse deserializes HttpRoutes`` () =
     let result = JsonSerializer.Deserialize<InfoResponse>(infoJson, jsonOptions)
     Assert.Equal(2, result.HttpRoutes.Length)
-    Assert.Equal("GET", result.HttpRoutes.[0].Verb)
-    Assert.Equal("/info", result.HttpRoutes.[0].Path)
-    Assert.Equal("Get information about available commands.", result.HttpRoutes.[0].Description)
+    Assert.Equal("GET", result.HttpRoutes[0].Verb)
+    Assert.Equal("/info", result.HttpRoutes[0].Path)
+    Assert.Equal("Get information about available commands.", result.HttpRoutes[0].Description)
 
 // ── ListResponse deserialization (root, no endpoints) ──
 
@@ -109,17 +132,17 @@ let ``ListResponse deserializes top-level nodes`` () =
     let result = JsonSerializer.Deserialize<ListResponse>(listRootJson, jsonOptions)
     Assert.True(result.Nodes.IsSome)
     Assert.Equal(2, result.Nodes.Value.Length)
-    Assert.Equal("Root/VirtualRailDriver", result.Nodes.Value.[0].NodePath)
-    Assert.Equal("VirtualRailDriver", result.Nodes.Value.[0].NodeName)
+    Assert.Equal("Root/VirtualRailDriver", result.Nodes.Value[0].NodePath)
+    Assert.Equal("VirtualRailDriver", result.Nodes.Value[0].NodeName)
 
 [<Fact>]
 let ``ListResponse deserializes nested child nodes`` () =
     let result = JsonSerializer.Deserialize<ListResponse>(listRootJson, jsonOptions)
-    let playerNode = result.Nodes.Value.[1]
+    let playerNode = result.Nodes.Value[1]
     Assert.Equal("Player", playerNode.NodeName)
     Assert.True(playerNode.Nodes.IsSome)
     Assert.Equal(1, playerNode.Nodes.Value.Length)
-    Assert.Equal("TransformComponent0", playerNode.Nodes.Value.[0].NodeName)
+    Assert.Equal("TransformComponent0", playerNode.Nodes.Value[0].NodeName)
 
 [<Fact>]
 let ``ListResponse Endpoints is None when absent`` () =
@@ -135,8 +158,8 @@ let ``ListResponse deserializes endpoints`` () =
     let result = JsonSerializer.Deserialize<ListResponse>(listWithEndpointsJson, jsonOptions)
     Assert.True(result.Endpoints.IsSome)
     Assert.Equal(2, result.Endpoints.Value.Length)
-    Assert.Equal("Property.bIsAWS_CutIn", result.Endpoints.Value.[0].Name)
-    Assert.False(result.Endpoints.Value.[0].Writable)
+    Assert.Equal("Property.bIsAWS_CutIn", result.Endpoints.Value[0].Name)
+    Assert.False(result.Endpoints.Value[0].Writable)
 
 [<Fact>]
 let ``ListResponse nodes can be empty list`` () =
