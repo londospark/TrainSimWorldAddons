@@ -31,7 +31,7 @@ module EndpointViewer =
                             TextBlock.create [
                                 TextBlock.text "(writable)"
                                 TextBlock.fontSize 10.0
-                                TextBlock.foreground (SolidColorBrush(Color.Parse(AppColors.warning)))
+                                TextBlock.foreground (AppColors.warning)
                             ]
                         Button.create [
                             Button.content "Get Value"

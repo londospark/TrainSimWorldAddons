@@ -80,18 +80,13 @@ module BindingPersistence =
                 eprintfn "[Persistence] JSON migration failed: %s" ex.Message
 
     let private ensureInitialized =
-        let mutable initialized = false
-        let lockObj = obj()
-        fun () ->
-            if not initialized then
-                lock lockObj (fun () ->
-                    if not initialized then
-                        Directory.CreateDirectory(configDir) |> ignore
-                        let dbExisted = File.Exists(dbPath)
-                        use conn = openConnection()
-                        ensureSchema conn
-                        if not dbExisted then migrateFromJson conn
-                        initialized <- true)
+        lazy (
+            Directory.CreateDirectory(configDir) |> ignore
+            let dbExisted = File.Exists(dbPath)
+            use conn = openConnection()
+            ensureSchema conn
+            if not dbExisted then migrateFromJson conn
+        )
 
     let private readAllFromDb (conn: SqliteConnection) : BindingsConfig =
         use cmd = conn.CreateCommand()
@@ -120,7 +115,7 @@ module BindingPersistence =
 
     let load () : BindingsConfig =
         try
-            ensureInitialized()
+            ensureInitialized.Force()
             use conn = openConnection()
             readAllFromDb conn
         with ex ->
@@ -129,7 +124,7 @@ module BindingPersistence =
 
     let save (config: BindingsConfig) =
         try
-            ensureInitialized()
+            ensureInitialized.Force()
             use conn = openConnection()
             use tx = conn.BeginTransaction()
             // Full replace: clear and reinsert

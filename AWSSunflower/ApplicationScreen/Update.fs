@@ -32,14 +32,14 @@ module ApplicationScreenUpdate =
             Cmd.none
 
         | Disconnect ->
-            disposeSubscription ()
             { model with
                 ApiConfig = None; ConnectionState = ApiConnectionState.Disconnected
                 TreeRoot = []; SelectedNode = None
                 EndpointValues = Map.empty; LastResponseTime = None
                 CurrentLoco = None
-                PollingValues = Map.empty },
-            Cmd.none
+                PollingValues = Map.empty
+                IsSubscriptionActive = false },
+            Cmd.ofEffect (fun _ -> disposeSubscription ())
 
         | RootNodesLoaded (nodes, elapsed) ->
             { model with TreeRoot = nodes; LastResponseTime = Some elapsed }, Cmd.none
@@ -94,31 +94,44 @@ module ApplicationScreenUpdate =
             | Some locoName, Some config ->
                 let binding = { NodePath = nodePath; EndpointName = endpointName; Label = endpointKey nodePath endpointName }
                 let newConfig = BindingPersistence.addBinding model.BindingsConfig locoName binding
-                BindingPersistence.save newConfig
                 let newModel = { model with BindingsConfig = newConfig }
                 let addr = { NodePath = nodePath; EndpointName = endpointName }
-                match currentSubscription.Value with
-                | Some sub ->
-                    sub.Add addr
-                    newModel, Cmd.none
-                | None ->
-                    let allBindings = getLocoBindings newConfig locoName
-                    newModel, createSubscriptionCmd config allBindings
+                let hasSubscription = currentSubscription.Value.IsSome
+                let persistAndSubscribeCmd =
+                    Cmd.ofEffect (fun _ ->
+                        BindingPersistence.save newConfig
+                        match currentSubscription.Value with
+                        | Some sub -> sub.Add addr
+                        | None -> ())
+                let cmds =
+                    if hasSubscription then
+                        persistAndSubscribeCmd
+                    else
+                        let allBindings = getLocoBindings newConfig locoName
+                        Cmd.batch [ persistAndSubscribeCmd; createSubscriptionCmd config allBindings ]
+                { newModel with IsSubscriptionActive = true }, cmds
 
         | UnbindEndpoint (nodePath, endpointName) ->
             match model.CurrentLoco with
             | Some locoName ->
                 let newConfig = BindingPersistence.removeBinding model.BindingsConfig locoName nodePath endpointName
-                BindingPersistence.save newConfig
                 let key = endpointKey nodePath endpointName
                 let addr = { NodePath = nodePath; EndpointName = endpointName }
-                currentSubscription.Value |> Option.iter (fun sub ->
-                    sub.Remove addr
-                    if sub.Endpoints.IsEmpty then disposeSubscription ())
+                let willBeEmpty =
+                    currentSubscription.Value
+                    |> Option.map (fun sub -> sub.Endpoints |> List.filter (fun a -> a <> addr) |> List.isEmpty)
+                    |> Option.defaultValue true
+                let persistCmd =
+                    Cmd.ofEffect (fun _ ->
+                        BindingPersistence.save newConfig
+                        currentSubscription.Value |> Option.iter (fun sub ->
+                            sub.Remove addr
+                            if sub.Endpoints.IsEmpty then disposeSubscription ()))
                 { model with
                     BindingsConfig = newConfig
-                    PollingValues = Map.remove key model.PollingValues },
-                resetSerialCmd model
+                    PollingValues = Map.remove key model.PollingValues
+                    IsSubscriptionActive = not willBeEmpty },
+                Cmd.batch [ persistCmd; resetSerialCmd model ]
             | None -> model, Cmd.none
 
         | DetectLoco ->
@@ -130,7 +143,6 @@ module ApplicationScreenUpdate =
             if model.CurrentLoco = Some locoName then
                 model, Cmd.none
             else
-                disposeSubscription ()
                 let newConfig = BindingPersistence.load ()
                 let locoBindings = getLocoBindings newConfig locoName
                 let subCmd =
@@ -141,10 +153,12 @@ module ApplicationScreenUpdate =
                     CurrentLoco = Some locoName
                     BindingsConfig = newConfig
                     PollingValues = Map.empty
+                    IsSubscriptionActive = not locoBindings.IsEmpty
                     TreeRoot = []
                     SelectedNode = None
                     EndpointValues = Map.empty },
                 Cmd.batch [
+                    Cmd.ofEffect (fun _ -> disposeSubscription ())
                     match model.ApiConfig with
                     | Some config -> loadRootNodesCmd config
                     | None -> Cmd.none
@@ -169,8 +183,9 @@ module ApplicationScreenUpdate =
             { model with SerialPortName = portName }, Cmd.none
 
         | DisconnectSerial ->
-            SerialPortModule.disconnect model.SerialPort
-            { model with SerialPort = None }, Cmd.none
+            let port = model.SerialPort
+            { model with SerialPort = None },
+            Cmd.ofEffect (fun _ -> SerialPortModule.disconnect port)
 
         | PortsUpdated ports ->
             let newModel = { model with DetectedPorts = ports }
@@ -182,11 +197,12 @@ module ApplicationScreenUpdate =
         | ToggleSerialConnection ->
             match model.SerialConnectionState with
             | ConnectionState.Connected _ ->
-                SerialPortModule.disconnect model.SerialPort
+                let port = model.SerialPort
                 { model with
                     SerialPort = None
                     SerialConnectionState = ConnectionState.Disconnected
-                    SerialIsConnecting = false }, Cmd.none
+                    SerialIsConnecting = false },
+                Cmd.ofEffect (fun _ -> SerialPortModule.disconnect port)
             | _ ->
                 match model.SerialPortName with
                 | Some portName ->
@@ -212,11 +228,9 @@ module ApplicationScreenUpdate =
                     SerialIsConnecting = false }, Cmd.none
 
         | SendSerialCommand cmd ->
-            match model.SerialPort with
-            | Some port when port.IsOpen ->
-                async {
-                    let! _ = SerialPortModule.sendAsync port cmd
-                    ()
-                } |> Async.Start
-                model, Cmd.none
-            | _ -> model, Cmd.none
+            model,
+            Cmd.ofEffect (fun _ ->
+                match model.SerialPort with
+                | Some port when port.IsOpen ->
+                    SerialPortModule.sendAsync port cmd |> Async.Ignore |> Async.Start
+                | _ -> ())
